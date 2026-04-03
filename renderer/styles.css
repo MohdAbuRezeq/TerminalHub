@@ -1,0 +1,634 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  /* Claude-inspired warm dark palette */
+  --sidebar-bg: #1c1b1a;
+  --sidebar-hover: #2a2826;
+  --sidebar-active: #35322e;
+  --sidebar-border: #302e2a;
+  --main-bg: #292724;
+  --surface: #332f2b;
+  --border: #3d3935;
+  --border-light: #4a453f;
+  --text: #e8e0d6;
+  --text-secondary: #a69d93;
+  --text-dim: #7a7269;
+  --accent: #da7756;
+  --accent-hover: #e58a6a;
+  --accent-subtle: rgba(218, 119, 86, 0.12);
+  --green: #8fba6a;
+  --red: #e05f5f;
+  --yellow: #d4a84b;
+  --blue: #6ba3d6;
+  --radius: 10px;
+  --radius-sm: 6px;
+  --sidebar-width: 280px;
+  --titlebar-height: 52px;
+  --transition: 0.15s ease;
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+  background: var(--main-bg);
+  color: var(--text);
+  user-select: none;
+}
+
+body {
+  display: flex;
+}
+
+/* ================================================
+   SIDEBAR — like Claude's conversation list
+   ================================================ */
+
+#sidebar {
+  width: var(--sidebar-width);
+  min-width: var(--sidebar-width);
+  height: 100vh;
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--sidebar-border);
+  display: flex;
+  flex-direction: column;
+  transition: min-width 0.25s ease, width 0.25s ease, opacity 0.2s ease;
+  overflow: hidden;
+  z-index: 10;
+}
+
+#sidebar.collapsed {
+  width: 0;
+  min-width: 0;
+  border-right: none;
+  opacity: 0;
+  pointer-events: none;
+}
+
+#sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 16px 12px;
+  -webkit-app-region: drag;
+}
+
+#brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.2px;
+  padding-left: 64px; /* traffic lights */
+}
+
+#brand svg {
+  color: var(--accent);
+}
+
+#sidebar-toggle {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all var(--transition);
+  -webkit-app-region: no-drag;
+}
+
+#sidebar-toggle:hover {
+  background: var(--sidebar-hover);
+  color: var(--text-secondary);
+}
+
+/* New terminal button */
+#new-terminal-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 12px 12px;
+  padding: 10px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+#new-terminal-btn:hover {
+  background: var(--sidebar-hover);
+  border-color: var(--border-light);
+}
+
+#new-terminal-btn svg {
+  color: var(--text-secondary);
+}
+
+/* Terminal list — the "conversations" */
+#terminal-list {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0 8px;
+}
+
+#terminal-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+#terminal-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#terminal-list::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+/* Individual terminal item — like a Claude chat entry */
+.terminal-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  margin: 1px 0;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all var(--transition);
+  position: relative;
+}
+
+.terminal-item:hover {
+  background: var(--sidebar-hover);
+}
+
+.terminal-item.active {
+  background: var(--sidebar-active);
+}
+
+.terminal-item .item-icon {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: var(--accent-subtle);
+  color: var(--accent);
+  flex-shrink: 0;
+  font-size: 14px;
+}
+
+.terminal-item.active .item-icon {
+  background: var(--accent);
+  color: var(--sidebar-bg);
+}
+
+.terminal-item .item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.terminal-item .item-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: default;
+}
+
+/* Inline rename input */
+.rename-input {
+  width: 100%;
+  height: 22px;
+  padding: 0 4px;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--main-bg);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  outline: none;
+}
+
+.terminal-item .item-subtitle {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.terminal-item .item-close {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 15px;
+  cursor: pointer;
+  opacity: 0;
+  transition: all var(--transition);
+  flex-shrink: 0;
+}
+
+.terminal-item:hover .item-close {
+  opacity: 1;
+}
+
+.terminal-item .item-close:hover {
+  background: var(--red);
+  color: white;
+}
+
+/* Active indicator dot */
+.terminal-item .item-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  flex-shrink: 0;
+}
+
+/* Sidebar footer */
+#sidebar-footer {
+  padding: 12px 16px;
+  border-top: 1px solid var(--sidebar-border);
+}
+
+#terminal-stats {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+#shortcuts-hint {
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-top: 6px;
+  opacity: 0.7;
+}
+
+#shortcuts-hint kbd {
+  display: inline-block;
+  padding: 1px 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-family: inherit;
+  font-size: 10px;
+}
+
+/* ================================================
+   MAIN AREA
+   ================================================ */
+
+#main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Titlebar / header */
+#main-titlebar {
+  height: var(--titlebar-height);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border);
+  -webkit-app-region: drag;
+  flex-shrink: 0;
+}
+
+#main-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  padding-left: 4px;
+}
+
+#main-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  -webkit-app-region: no-drag;
+}
+
+#main-actions button {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+#main-actions button:hover {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+/* Search bar */
+#search-bar {
+  height: 44px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+#search-bar.hidden {
+  display: none;
+}
+
+#search-input {
+  flex: 1;
+  max-width: 400px;
+  height: 30px;
+  background: var(--main-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  padding: 0 10px;
+  font-size: 13px;
+  outline: none;
+  transition: border-color var(--transition);
+}
+
+#search-input:focus {
+  border-color: var(--accent);
+}
+
+#search-bar button {
+  height: 28px;
+  width: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 14px;
+  transition: all var(--transition);
+}
+
+#search-bar button:hover {
+  background: var(--sidebar-hover);
+  color: var(--text);
+}
+
+/* Terminal container */
+#terminal-container {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+.terminal-wrapper {
+  position: absolute;
+  inset: 0;
+  display: none;
+  overflow: hidden;
+}
+
+.terminal-wrapper.active {
+  display: flex;
+}
+
+/* Split pane layout */
+.split-container {
+  display: flex;
+  width: 100%;
+  height: 100%;
+}
+
+.split-container.horizontal {
+  flex-direction: row;
+}
+
+.split-container.vertical {
+  flex-direction: column;
+}
+
+.split-pane {
+  flex: 1;
+  position: relative;
+  min-width: 100px;
+  min-height: 60px;
+  overflow: hidden;
+}
+
+.split-pane .xterm {
+  height: 100%;
+}
+
+.split-pane.focused::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--accent);
+  border-radius: 2px;
+  pointer-events: none;
+  opacity: 0.4;
+}
+
+/* Pane close button */
+.pane-close-btn {
+  position: absolute;
+  top: 6px;
+  right: 10px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text-dim);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  z-index: 10;
+  opacity: 0;
+  transition: all var(--transition);
+}
+
+.split-pane:hover .pane-close-btn {
+  opacity: 1;
+}
+
+.pane-close-btn:hover {
+  background: var(--red);
+  border-color: var(--red);
+  color: white;
+}
+
+.split-divider {
+  flex-shrink: 0;
+  background: var(--border);
+  transition: background var(--transition);
+  z-index: 5;
+}
+
+.split-container.horizontal > .split-divider {
+  width: 3px;
+  cursor: col-resize;
+}
+
+.split-container.vertical > .split-divider {
+  height: 3px;
+  cursor: row-resize;
+}
+
+.split-divider:hover,
+.split-divider.dragging {
+  background: var(--accent);
+}
+
+/* xterm overrides */
+.xterm {
+  padding: 8px 4px 4px 10px;
+}
+
+.xterm-viewport::-webkit-scrollbar {
+  width: 6px;
+}
+
+.xterm-viewport::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.xterm-viewport::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+.xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: var(--text-dim);
+}
+
+/* ================================================
+   EMPTY STATE
+   ================================================ */
+
+#empty-state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+
+#empty-state.hidden {
+  display: none;
+}
+
+.empty-icon {
+  color: var(--text-dim);
+  opacity: 0.3;
+}
+
+#empty-state h2 {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+#empty-state p {
+  font-size: 14px;
+  color: var(--text-dim);
+  margin-top: -4px;
+}
+
+#empty-new-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 10px 20px;
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius);
+  color: white;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+#empty-new-btn:hover {
+  background: var(--accent-hover);
+}
+
+/* ================================================
+   COLLAPSED SIDEBAR — show toggle in main
+   ================================================ */
+
+#sidebar-expand {
+  width: 32px;
+  height: 32px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition: all var(--transition);
+  flex-shrink: 0;
+  margin-left: 72px; /* space for traffic lights */
+}
+
+#sidebar-expand:hover {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+#sidebar-expand.visible {
+  display: flex;
+}

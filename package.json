@@ -1,0 +1,25 @@
+{
+  "name": "terminal-hub",
+  "version": "1.0.0",
+  "description": "Manage all your terminals in one place",
+  "main": "main.js",
+  "scripts": {
+    "build": "esbuild renderer/renderer.js --bundle --outfile=renderer/bundle.js --platform=browser --format=iife --external:electron",
+    "start": "npm run build && electron .",
+    "rebuild": "electron-rebuild -f -w node-pty"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/addon-search": "^0.15.0",
+    "@xterm/addon-web-links": "^0.11.0",
+    "@xterm/xterm": "^5.5.0",
+    "electron-store": "^8.1.0",
+    "node-pty": "^1.0.0"
+  },
+  "devDependencies": {
+    "@electron/packager": "^19.1.0",
+    "electron": "^33.0.0",
+    "electron-rebuild": "^3.2.9",
+    "esbuild": "^0.28.0"
+  }
+}
