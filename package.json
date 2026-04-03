@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "Manage all your terminals in one place",
   "main": "main.js",
+  "bin": {
+    "terminalhub": "./bin/terminalhub.js"
+  },
   "scripts": {
     "build": "esbuild renderer/renderer.js --bundle --outfile=renderer/bundle.js --platform=browser --format=iife --external:electron",
     "start": "npm run build && electron .",
