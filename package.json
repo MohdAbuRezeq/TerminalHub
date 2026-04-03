@@ -9,7 +9,8 @@
   "scripts": {
     "build": "esbuild renderer/renderer.js --bundle --outfile=renderer/bundle.js --platform=browser --format=iife --external:electron",
     "start": "npm run build && electron .",
-    "rebuild": "electron-rebuild -f -w node-pty"
+    "rebuild": "electron-rebuild -f -w node-pty",
+    "package": "npm run build && electron-packager . TerminalHub --platform=darwin --arch=arm64 --out=dist --overwrite --icon=assets/icon.icns --app-bundle-id=com.terminalhub.app --prune=true --asar.unpackDir=node_modules/node-pty"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.10.0",
