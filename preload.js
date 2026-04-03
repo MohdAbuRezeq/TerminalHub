@@ -31,4 +31,10 @@ contextBridge.exposeInMainWorld('terminalAPI', {
   onZoomIn: (cb) => ipcRenderer.on('zoom-in', cb),
   onZoomOut: (cb) => ipcRenderer.on('zoom-out', cb),
   onZoomReset: (cb) => ipcRenderer.on('zoom-reset', cb),
+
+  // Snippets
+  getSnippets: () => ipcRenderer.invoke('get-snippets'),
+  saveSnippet: (snippet) => ipcRenderer.invoke('save-snippet', snippet),
+  deleteSnippet: (id) => ipcRenderer.invoke('delete-snippet', id),
+  onToggleSnippets: (cb) => ipcRenderer.on('toggle-snippets', cb),
 });

@@ -77,6 +77,12 @@
             <line x1="3" y1="12" x2="21" y2="12"></line>
           </svg>
         </button>
+        <button id="snippets-btn" title="Snippets (Cmd+Shift+S)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="16 18 22 12 16 6"></polyline>
+            <polyline points="8 6 2 12 8 18"></polyline>
+          </svg>
+        </button>
         <button id="search-btn" title="Search (Cmd+F)">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="11" cy="11" r="8"></circle>
@@ -92,6 +98,26 @@
       <button id="search-prev">&uarr;</button>
       <button id="search-next">&darr;</button>
       <button id="search-close">&times;</button>
+    </div>
+
+    <!-- Snippets palette -->
+    <div id="snippets-overlay" class="hidden">
+      <div id="snippets-palette">
+        <div id="snippets-header">
+          <span>Snippets</span>
+          <button id="snippets-add-btn" title="Add snippet">+</button>
+        </div>
+        <div id="snippets-list"></div>
+        <div id="snippets-empty">No snippets yet. Click + to add one.</div>
+        <div id="snippet-form" class="hidden">
+          <input type="text" id="snippet-name" placeholder="Name (e.g. Claude)" />
+          <input type="text" id="snippet-command" placeholder="Command (e.g. claude --dangerously-skip-permissions)" />
+          <div id="snippet-form-actions">
+            <button id="snippet-cancel">Cancel</button>
+            <button id="snippet-save">Save</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Terminal area -->

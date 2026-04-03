@@ -644,6 +644,117 @@ window.terminalAPI.onZoomOut(() => setFontSize(fontSize - 1));
 window.terminalAPI.onZoomReset(() => setFontSize(14));
 
 // ──────────────────────────────────────
+// Snippets palette
+// ──────────────────────────────────────
+
+const snippetsOverlay = document.getElementById('snippets-overlay');
+const snippetsList = document.getElementById('snippets-list');
+const snippetsEmpty = document.getElementById('snippets-empty');
+const snippetForm = document.getElementById('snippet-form');
+const snippetNameInput = document.getElementById('snippet-name');
+const snippetCommandInput = document.getElementById('snippet-command');
+
+let snippetsVisible = false;
+
+function genSnippetId() {
+  return 's_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+async function toggleSnippets() {
+  snippetsVisible = !snippetsVisible;
+  snippetsOverlay.classList.toggle('hidden', !snippetsVisible);
+  if (snippetsVisible) {
+    snippetForm.classList.add('hidden');
+    await renderSnippets();
+  }
+}
+
+async function renderSnippets() {
+  const snippets = await window.terminalAPI.getSnippets();
+  snippetsList.innerHTML = '';
+  snippetsEmpty.classList.toggle('hidden', snippets.length > 0);
+
+  snippets.forEach((s) => {
+    const el = document.createElement('div');
+    el.className = 'snippet-item';
+    el.innerHTML = `
+      <div class="snippet-item-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="4 17 10 11 4 5"></polyline>
+          <line x1="12" y1="19" x2="20" y2="19"></line>
+        </svg>
+      </div>
+      <div class="snippet-item-info">
+        <div class="snippet-item-name">${s.name}</div>
+        <div class="snippet-item-command">${s.command}</div>
+      </div>
+      <button class="snippet-item-delete" data-action="delete" title="Delete snippet">&times;</button>
+    `;
+
+    el.addEventListener('click', (e) => {
+      if (e.target.closest('[data-action="delete"]')) return;
+      pasteSnippet(s.command);
+    });
+
+    el.querySelector('[data-action="delete"]').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await window.terminalAPI.deleteSnippet(s.id);
+      await renderSnippets();
+    });
+
+    snippetsList.appendChild(el);
+  });
+}
+
+function pasteSnippet(command) {
+  const session = sessions.find((s) => s.id === activeId);
+  if (!session) return;
+  const pane = session.panes.find((p) => p.el.classList.contains('focused')) || session.panes[0];
+  if (pane) {
+    window.terminalAPI.sendInput(pane.ptyId, command);
+  }
+  toggleSnippets();
+  if (pane) pane.term.focus();
+}
+
+document.getElementById('snippets-add-btn').addEventListener('click', () => {
+  snippetForm.classList.remove('hidden');
+  snippetNameInput.value = '';
+  snippetCommandInput.value = '';
+  snippetNameInput.focus();
+});
+
+document.getElementById('snippet-cancel').addEventListener('click', () => {
+  snippetForm.classList.add('hidden');
+});
+
+document.getElementById('snippet-save').addEventListener('click', async () => {
+  const name = snippetNameInput.value.trim();
+  const command = snippetCommandInput.value.trim();
+  if (!name || !command) return;
+  await window.terminalAPI.saveSnippet({ id: genSnippetId(), name, command });
+  snippetForm.classList.add('hidden');
+  await renderSnippets();
+});
+
+snippetCommandInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') document.getElementById('snippet-save').click();
+  if (e.key === 'Escape') toggleSnippets();
+});
+
+snippetNameInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') snippetCommandInput.focus();
+  if (e.key === 'Escape') toggleSnippets();
+});
+
+snippetsOverlay.addEventListener('click', (e) => {
+  if (e.target === snippetsOverlay) toggleSnippets();
+});
+
+document.getElementById('snippets-btn').addEventListener('click', toggleSnippets);
+window.terminalAPI.onToggleSnippets(toggleSnippets);
+
+// ──────────────────────────────────────
 // Resize
 // ──────────────────────────────────────
 

@@ -3,6 +3,9 @@ const path = require('path');
 const os = require('os');
 const { execFileSync } = require('child_process');
 const pty = require('node-pty');
+const Store = require('electron-store');
+
+const store = new Store({ name: 'snippets', defaults: { snippets: [] } });
 
 let mainWindow;
 const terminals = new Map();
@@ -101,6 +104,12 @@ function createWindow() {
           label: 'Clear Terminal',
           accelerator: 'CmdOrCtrl+K',
           click: () => mainWindow.webContents.send('clear-terminal'),
+        },
+        { type: 'separator' },
+        {
+          label: 'Snippets',
+          accelerator: 'CmdOrCtrl+Shift+S',
+          click: () => mainWindow.webContents.send('toggle-snippets'),
         },
       ],
     },
@@ -211,6 +220,30 @@ ipcMain.on('terminal-kill', (event, { id }) => {
     term.kill();
     terminals.delete(id);
   }
+});
+
+// ──────────────────────────────────────
+// Snippets CRUD
+// ──────────────────────────────────────
+
+ipcMain.handle('get-snippets', () => store.get('snippets'));
+
+ipcMain.handle('save-snippet', (event, snippet) => {
+  const snippets = store.get('snippets');
+  const idx = snippets.findIndex((s) => s.id === snippet.id);
+  if (idx >= 0) {
+    snippets[idx] = snippet;
+  } else {
+    snippets.push(snippet);
+  }
+  store.set('snippets', snippets);
+  return snippets;
+});
+
+ipcMain.handle('delete-snippet', (event, id) => {
+  const snippets = store.get('snippets').filter((s) => s.id !== id);
+  store.set('snippets', snippets);
+  return snippets;
 });
 
 ipcMain.handle('get-cwd', (event, { id }) => {
