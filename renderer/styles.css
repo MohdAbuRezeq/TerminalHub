@@ -895,3 +895,74 @@ body {
 #snippet-save:hover {
   background: var(--accent-hover);
 }
+
+/* ================================================
+   CLOSE CONFIRMATION DIALOG
+   ================================================ */
+
+#confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+#confirm-overlay.hidden {
+  display: none;
+}
+
+#confirm-dialog {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px 28px 20px;
+  width: 300px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+}
+
+#confirm-message {
+  font-size: 14px;
+  color: var(--text);
+  margin-bottom: 20px;
+  line-height: 1.5;
+}
+
+#confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+#confirm-actions button {
+  height: 32px;
+  padding: 0 16px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+#confirm-cancel {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+
+#confirm-cancel:hover {
+  background: var(--sidebar-hover);
+  color: var(--text);
+}
+
+#confirm-ok {
+  background: var(--red);
+  border: none;
+  color: white;
+}
+
+#confirm-ok:hover {
+  opacity: 0.85;
+}

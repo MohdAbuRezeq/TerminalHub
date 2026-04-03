@@ -106,9 +106,9 @@ async function createPane(container, cwd) {
 
   const pane = { ptyId, term, fitAddon, searchAddon, el: paneEl };
 
-  closeBtn.addEventListener('click', (e) => {
+  closeBtn.addEventListener('click', async (e) => {
     e.stopPropagation();
-    closePaneInSession(pane);
+    if (await confirmClose()) closePaneInSession(pane);
   });
 
   return pane;
@@ -229,9 +229,9 @@ function renderSidebar() {
     `;
 
     let clickTimer = null;
-    el.addEventListener('click', (e) => {
+    el.addEventListener('click', async (e) => {
       if (e.target.closest('[data-action="close"]')) {
-        removeSession(session.id);
+        if (await confirmClose()) removeSession(session.id);
         return;
       }
       // Delay single-click to distinguish from double-click
@@ -618,8 +618,8 @@ window.terminalAPI.onNewTabInFolder(async () => {
   const folder = await window.terminalAPI.pickFolder();
   if (folder) createSession(folder);
 });
-window.terminalAPI.onCloseTab(() => { if (activeId) removeSession(activeId); });
-window.terminalAPI.onClosePane(() => closeFocusedPane());
+window.terminalAPI.onCloseTab(async () => { if (activeId && await confirmClose()) removeSession(activeId); });
+window.terminalAPI.onClosePane(async () => { if (await confirmClose()) closeFocusedPane(); });
 window.terminalAPI.onSplitHorizontal(() => splitPane('horizontal'));
 window.terminalAPI.onSplitVertical(() => splitPane('vertical'));
 
@@ -762,6 +762,44 @@ snippetsOverlay.addEventListener('click', (e) => {
 
 document.getElementById('snippets-btn').addEventListener('click', toggleSnippets);
 window.terminalAPI.onToggleSnippets(toggleSnippets);
+
+// ──────────────────────────────────────
+// Close confirmation dialog
+// ──────────────────────────────────────
+
+function confirmClose(message = 'Close this terminal?') {
+  return new Promise((resolve) => {
+    const overlay = document.getElementById('confirm-overlay');
+    const msgEl = document.getElementById('confirm-message');
+    const okBtn = document.getElementById('confirm-ok');
+    const cancelBtn = document.getElementById('confirm-cancel');
+
+    msgEl.textContent = message;
+    overlay.classList.remove('hidden');
+    okBtn.focus();
+
+    const cleanup = () => {
+      overlay.classList.add('hidden');
+      okBtn.removeEventListener('click', onOk);
+      cancelBtn.removeEventListener('click', onCancel);
+      overlay.removeEventListener('click', onOverlay);
+      document.removeEventListener('keydown', onKey);
+    };
+
+    const onOk = () => { cleanup(); resolve(true); };
+    const onCancel = () => { cleanup(); resolve(false); };
+    const onOverlay = (e) => { if (e.target === overlay) onCancel(); };
+    const onKey = (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); onOk(); }
+      if (e.key === 'Escape') onCancel();
+    };
+
+    okBtn.addEventListener('click', onOk);
+    cancelBtn.addEventListener('click', onCancel);
+    overlay.addEventListener('click', onOverlay);
+    document.addEventListener('keydown', onKey);
+  });
+}
 
 // ──────────────────────────────────────
 // Resize
