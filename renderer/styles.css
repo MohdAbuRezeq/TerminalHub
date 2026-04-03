@@ -112,12 +112,18 @@ body {
   color: var(--text-secondary);
 }
 
-/* New terminal button */
+/* New terminal buttons */
+#new-terminal-group {
+  display: flex;
+  gap: 6px;
+  margin: 4px 12px 12px;
+}
+
 #new-terminal-btn {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin: 4px 12px 12px;
+  flex: 1;
   padding: 10px 14px;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -136,6 +142,26 @@ body {
 
 #new-terminal-btn svg {
   color: var(--text-secondary);
+}
+
+#new-terminal-folder-btn {
+  width: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-dim);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all var(--transition);
+}
+
+#new-terminal-folder-btn:hover {
+  background: var(--sidebar-hover);
+  border-color: var(--border-light);
+  color: var(--accent);
 }
 
 /* Terminal list — the "conversations" */
@@ -459,6 +485,10 @@ body {
 
 .split-pane .xterm {
   height: 100%;
+}
+
+.split-pane .xterm-viewport {
+  overflow-y: auto !important;
 }
 
 .split-pane.focused::after {

@@ -55,7 +55,7 @@ const termTheme = {
 // Create a terminal pane
 // ──────────────────────────────────────
 
-async function createPane(container) {
+async function createPane(container, cwd) {
   const paneEl = document.createElement('div');
   paneEl.className = 'split-pane';
   container.appendChild(paneEl);
@@ -93,6 +93,7 @@ async function createPane(container) {
   const ptyId = await window.terminalAPI.createTerminal({
     cols: term.cols,
     rows: term.rows,
+    cwd,
   });
 
   term.onData((data) => window.terminalAPI.sendInput(ptyId, data));
@@ -117,7 +118,7 @@ async function createPane(container) {
 // Session (conversation) management
 // ──────────────────────────────────────
 
-async function createSession() {
+async function createSession(cwd) {
   const id = genId();
   sessionCounter++;
 
@@ -126,7 +127,7 @@ async function createSession() {
   wrapperEl.dataset.sessionId = id;
   containerEl.appendChild(wrapperEl);
 
-  const pane = await createPane(wrapperEl);
+  const pane = await createPane(wrapperEl, cwd);
 
   const session = {
     id,
@@ -598,7 +599,11 @@ expandBtn.addEventListener('click', toggleSidebar);
 // Button handlers
 // ──────────────────────────────────────
 
-document.getElementById('new-terminal-btn').addEventListener('click', createSession);
+document.getElementById('new-terminal-btn').addEventListener('click', () => createSession());
+document.getElementById('new-terminal-folder-btn').addEventListener('click', async () => {
+  const folder = await window.terminalAPI.pickFolder();
+  if (folder) createSession(folder);
+});
 document.getElementById('empty-new-btn').addEventListener('click', createSession);
 document.getElementById('split-h-btn').addEventListener('click', () => splitPane('horizontal'));
 document.getElementById('split-v-btn').addEventListener('click', () => splitPane('vertical'));
@@ -609,6 +614,10 @@ document.getElementById('search-btn').addEventListener('click', toggleSearch);
 // ──────────────────────────────────────
 
 window.terminalAPI.onNewTab(() => createSession());
+window.terminalAPI.onNewTabInFolder(async () => {
+  const folder = await window.terminalAPI.pickFolder();
+  if (folder) createSession(folder);
+});
 window.terminalAPI.onCloseTab(() => { if (activeId) removeSession(activeId); });
 window.terminalAPI.onClosePane(() => closeFocusedPane());
 window.terminalAPI.onSplitHorizontal(() => splitPane('horizontal'));

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Menu, globalShortcut } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, globalShortcut, dialog } = require('electron');
 const path = require('path');
 const os = require('os');
 const { execFileSync } = require('child_process');
@@ -52,6 +52,11 @@ function createWindow() {
           label: 'New Tab',
           accelerator: 'CmdOrCtrl+T',
           click: () => mainWindow.webContents.send('new-tab'),
+        },
+        {
+          label: 'New Tab in Folder...',
+          accelerator: 'CmdOrCtrl+Shift+T',
+          click: () => mainWindow.webContents.send('new-tab-in-folder'),
         },
         {
           label: 'Close Tab',
@@ -163,6 +168,15 @@ app.on('activate', () => {
 });
 
 ipcMain.handle('get-homedir', () => os.homedir());
+
+ipcMain.handle('pick-folder', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory'],
+    title: 'Open Terminal in Folder',
+  });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  return result.filePaths[0];
+});
 
 ipcMain.handle('create-terminal', (event, { cols, rows, cwd }) => {
   const id = ++terminalIdCounter;

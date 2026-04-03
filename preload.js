@@ -19,7 +19,9 @@ contextBridge.exposeInMainWorld('terminalAPI', {
     return () => ipcRenderer.removeListener('terminal-exit', handler);
   },
 
+  pickFolder: () => ipcRenderer.invoke('pick-folder'),
   onNewTab: (cb) => ipcRenderer.on('new-tab', cb),
+  onNewTabInFolder: (cb) => ipcRenderer.on('new-tab-in-folder', cb),
   onCloseTab: (cb) => ipcRenderer.on('close-tab', cb),
   onClosePane: (cb) => ipcRenderer.on('close-pane', cb),
   onSplitHorizontal: (cb) => ipcRenderer.on('split-horizontal', cb),
