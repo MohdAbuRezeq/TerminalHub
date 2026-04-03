@@ -604,7 +604,7 @@ document.getElementById('new-terminal-folder-btn').addEventListener('click', asy
   const folder = await window.terminalAPI.pickFolder();
   if (folder) createSession(folder);
 });
-document.getElementById('empty-new-btn').addEventListener('click', createSession);
+document.getElementById('empty-new-btn').addEventListener('click', () => createSession());
 document.getElementById('split-h-btn').addEventListener('click', () => splitPane('horizontal'));
 document.getElementById('split-v-btn').addEventListener('click', () => splitPane('vertical'));
 document.getElementById('search-btn').addEventListener('click', toggleSearch);
