@@ -111,6 +111,32 @@ async function createPane(container, cwd) {
   term.onData((data) => window.terminalAPI.sendInput(ptyId, data));
   term.onResize(({ cols, rows }) => window.terminalAPI.resize(ptyId, cols, rows));
 
+  // Clean up copied text: trim trailing whitespace and rejoin soft-wrapped lines
+  term.attachCustomKeyEventHandler((e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'c' && term.hasSelection()) {
+      e.preventDefault();
+      const raw = term.getSelection();
+      const cols = term.cols;
+      const lines = raw.split('\n');
+      const cleaned = lines
+        .map((line) => line.trim())
+        .reduce((acc, line, i, arr) => {
+          if (i === 0) return [line];
+          // If the previous trimmed line filled the terminal width, it was soft-wrapped
+          if (arr[i - 1].length >= cols && line.length > 0) {
+            acc[acc.length - 1] += line;
+          } else {
+            acc.push(line);
+          }
+          return acc;
+        }, [])
+        .join('\n');
+      navigator.clipboard.writeText(cleaned);
+      return false;
+    }
+    return true;
+  });
+
   term.textarea.addEventListener('focus', () => {
     document.querySelectorAll('.split-pane.focused').forEach((el) => el.classList.remove('focused'));
     paneEl.classList.add('focused');
