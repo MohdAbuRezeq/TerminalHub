@@ -1,6 +1,7 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('terminalAPI', {
+  getFilePath: (file) => webUtils.getPathForFile(file),
   getHomedir: () => ipcRenderer.invoke('get-homedir'),
   createTerminal: (opts) => ipcRenderer.invoke('create-terminal', opts),
   sendInput: (id, data) => ipcRenderer.send('terminal-input', { id, data }),

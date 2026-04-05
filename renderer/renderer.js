@@ -123,6 +123,23 @@ async function createPane(container, cwd) {
     if (await confirmClose()) closePaneInSession(pane);
   });
 
+  // Drag-and-drop: drop a file onto the pane to paste its path
+  paneEl.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  });
+  paneEl.addEventListener('drop', (e) => {
+    e.preventDefault();
+    const paths = Array.from(e.dataTransfer.files)
+      .map((f) => window.terminalAPI.getFilePath(f))
+      .filter(Boolean)
+      .map((p) => (p.includes(' ') ? `"${p}"` : p));
+    if (paths.length) {
+      window.terminalAPI.sendInput(ptyId, paths.join(' '));
+      term.focus();
+    }
+  });
+
   return pane;
 }
 
@@ -821,6 +838,13 @@ window.addEventListener('resize', () => {
   const session = sessions.find((s) => s.id === activeId);
   if (session) session.panes.forEach((p) => safeFit(p));
 });
+
+// ──────────────────────────────────────
+// Prevent Electron from navigating when files are dragged onto the window
+// ──────────────────────────────────────
+
+document.addEventListener('dragover', (e) => e.preventDefault());
+document.addEventListener('drop', (e) => e.preventDefault());
 
 // ──────────────────────────────────────
 // Boot — start with one terminal
