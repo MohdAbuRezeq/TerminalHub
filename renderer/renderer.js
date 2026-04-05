@@ -18,6 +18,18 @@ let activeId = null;
 let fontSize = 14;
 let sessionCounter = 0;
 
+// Wrap fitAddon.fit() to preserve scroll position when the user has scrolled up.
+// fit() can reflow the buffer (e.g. on window resize), which resets scrollTop.
+function safeFit(pane) {
+  const buffer = pane.term.buffer.active;
+  const atBottom = buffer.viewportY >= buffer.baseY;
+  const savedLine = buffer.viewportY;
+  pane.fitAddon.fit();
+  if (!atBottom) {
+    pane.term.scrollToLine(savedLine);
+  }
+}
+
 function genId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
@@ -190,7 +202,7 @@ function activateSession(id) {
   if (itemEl) itemEl.classList.add('active');
 
   requestAnimationFrame(() => {
-    session.panes.forEach((p) => p.fitAddon.fit());
+    session.panes.forEach((p) => safeFit(p));
     const focused = session.panes.find((p) => p.el.classList.contains('focused')) || session.panes[0];
     focused.term.focus();
   });
@@ -338,7 +350,7 @@ async function splitPane(direction) {
   }
 
   requestAnimationFrame(() => {
-    session.panes.forEach((p) => p.fitAddon.fit());
+    session.panes.forEach((p) => safeFit(p));
   });
 
   renderSidebar();
@@ -372,7 +384,7 @@ function createDivider(container, direction) {
       before.style.flex = `${Math.max(100, startSizes.before + delta) / total}`;
       after.style.flex = `${Math.max(100, startSizes.after - delta) / total}`;
       const session = sessions.find((s) => s.id === activeId);
-      if (session) session.panes.forEach((p) => p.fitAddon.fit());
+      if (session) session.panes.forEach((p) => safeFit(p));
     };
 
     const onUp = () => {
@@ -436,7 +448,7 @@ function closePaneInSession(pane) {
 
   // Refit and focus remaining panes
   requestAnimationFrame(() => {
-    session.panes.forEach((p) => p.fitAddon.fit());
+    session.panes.forEach((p) => safeFit(p));
     session.panes[0].term.focus();
   });
 
@@ -506,7 +518,7 @@ window.terminalAPI.onExit(({ id }) => {
       if (dividers && dividers.length >= session.panes.length) {
         dividers[dividers.length - 1].remove();
       }
-      session.panes.forEach((p) => p.fitAddon.fit());
+      session.panes.forEach((p) => safeFit(p));
       session.panes[0].term.focus();
       renderSidebar();
     }
@@ -573,7 +585,7 @@ function setFontSize(size) {
   fontSize = Math.max(8, Math.min(32, size));
   sessions.forEach((s) => s.panes.forEach((p) => {
     p.term.options.fontSize = fontSize;
-    p.fitAddon.fit();
+    safeFit(p);
   }));
 }
 
@@ -588,7 +600,7 @@ function toggleSidebar() {
   expandBtn.classList.toggle('visible', sidebar.classList.contains('collapsed'));
   setTimeout(() => {
     const session = sessions.find((s) => s.id === activeId);
-    if (session) session.panes.forEach((p) => p.fitAddon.fit());
+    if (session) session.panes.forEach((p) => safeFit(p));
   }, 300);
 }
 
@@ -807,7 +819,7 @@ function confirmClose(message = 'Close this terminal?') {
 
 window.addEventListener('resize', () => {
   const session = sessions.find((s) => s.id === activeId);
-  if (session) session.panes.forEach((p) => p.fitAddon.fit());
+  if (session) session.panes.forEach((p) => safeFit(p));
 });
 
 // ──────────────────────────────────────

@@ -452,12 +452,15 @@ body {
 .terminal-wrapper {
   position: absolute;
   inset: 0;
-  display: none;
+  display: flex;
   overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .terminal-wrapper.active {
-  display: flex;
+  visibility: visible;
+  pointer-events: auto;
 }
 
 /* Split pane layout */
