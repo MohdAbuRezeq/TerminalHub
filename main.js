@@ -182,7 +182,7 @@ ipcMain.handle('create-terminal', (event, { cols, rows, cwd }) => {
   const id = ++terminalIdCounter;
   const shell = process.env.SHELL || '/bin/zsh';
 
-  const ptyProcess = pty.spawn(shell, [], {
+  const ptyProcess = pty.spawn(shell, ['--login'], {
     name: 'xterm-256color',
     cols: cols || 80,
     rows: rows || 24,
