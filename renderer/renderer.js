@@ -18,14 +18,19 @@ let activeId = null;
 let fontSize = 14;
 let sessionCounter = 0;
 
-// Wrap fitAddon.fit() to preserve scroll position when the user has scrolled up.
-// fit() can reflow the buffer (e.g. on window resize), which resets scrollTop.
+// Wrap fitAddon.fit() to preserve scroll position across reflows.
+// fit() can reflow the buffer (e.g. on window resize, visibility toggle),
+// which leaves scrollTop at an arbitrary position. We explicitly restore:
+//   - if the user was scrolled up, keep them on the same line
+//   - if the user was at the bottom, pin them to the bottom
 function safeFit(pane) {
   const buffer = pane.term.buffer.active;
   const atBottom = buffer.viewportY >= buffer.baseY;
   const savedLine = buffer.viewportY;
   pane.fitAddon.fit();
-  if (!atBottom) {
+  if (atBottom) {
+    pane.term.scrollToBottom();
+  } else {
     pane.term.scrollToLine(savedLine);
   }
 }
