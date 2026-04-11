@@ -900,6 +900,66 @@ body {
 }
 
 /* ================================================
+   NEW TERMINAL PICKER
+   ================================================ */
+
+#new-terminal-picker-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 80px;
+  z-index: 100;
+}
+
+#new-terminal-picker-overlay.hidden {
+  display: none;
+}
+
+#new-terminal-picker {
+  width: 460px;
+  max-height: 420px;
+  background: var(--sidebar-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#new-terminal-picker-header {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  cursor: grab;
+  user-select: none;
+}
+
+#new-terminal-picker-header.dragging {
+  cursor: grabbing;
+}
+
+#new-terminal-picker-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+#new-terminal-picker-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+#new-terminal-picker-list::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+/* ================================================
    CLOSE CONFIRMATION DIALOG
    ================================================ */
 

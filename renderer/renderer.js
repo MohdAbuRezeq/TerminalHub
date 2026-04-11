@@ -663,12 +663,12 @@ expandBtn.addEventListener('click', toggleSidebar);
 // Button handlers
 // ──────────────────────────────────────
 
-document.getElementById('new-terminal-btn').addEventListener('click', () => createSession());
+document.getElementById('new-terminal-btn').addEventListener('click', () => showNewTerminalPicker());
 document.getElementById('new-terminal-folder-btn').addEventListener('click', async () => {
   const folder = await window.terminalAPI.pickFolder();
-  if (folder) createSession(folder);
+  if (folder) showNewTerminalPicker(folder);
 });
-document.getElementById('empty-new-btn').addEventListener('click', () => createSession());
+document.getElementById('empty-new-btn').addEventListener('click', () => showNewTerminalPicker());
 document.getElementById('split-h-btn').addEventListener('click', () => splitPane('horizontal'));
 document.getElementById('split-v-btn').addEventListener('click', () => splitPane('vertical'));
 document.getElementById('search-btn').addEventListener('click', toggleSearch);
@@ -677,10 +677,10 @@ document.getElementById('search-btn').addEventListener('click', toggleSearch);
 // Menu IPC
 // ──────────────────────────────────────
 
-window.terminalAPI.onNewTab(() => createSession());
+window.terminalAPI.onNewTab(() => showNewTerminalPicker());
 window.terminalAPI.onNewTabInFolder(async () => {
   const folder = await window.terminalAPI.pickFolder();
-  if (folder) createSession(folder);
+  if (folder) showNewTerminalPicker(folder);
 });
 window.terminalAPI.onCloseTab(async () => { if (activeId && await confirmClose()) removeSession(activeId); });
 window.terminalAPI.onClosePane(async () => { if (await confirmClose()) closeFocusedPane(); });
@@ -715,6 +715,152 @@ window.terminalAPI.onClearTerminal(() => {
 window.terminalAPI.onZoomIn(() => setFontSize(fontSize + 1));
 window.terminalAPI.onZoomOut(() => setFontSize(fontSize - 1));
 window.terminalAPI.onZoomReset(() => setFontSize(14));
+
+// ──────────────────────────────────────
+// New terminal picker (Blank + snippets)
+// ──────────────────────────────────────
+
+const newTerminalPickerOverlay = document.getElementById('new-terminal-picker-overlay');
+const newTerminalPicker = document.getElementById('new-terminal-picker');
+const newTerminalPickerHeader = document.getElementById('new-terminal-picker-header');
+const newTerminalPickerList = document.getElementById('new-terminal-picker-list');
+
+// Persist the picker's dragged position within the session so reopening it
+// doesn't snap back to center every time.
+let pickerOffsetX = 0;
+let pickerOffsetY = 0;
+
+function applyPickerOffset() {
+  if (pickerOffsetX === 0 && pickerOffsetY === 0) {
+    newTerminalPicker.style.transform = '';
+  } else {
+    newTerminalPicker.style.transform = `translate(${pickerOffsetX}px, ${pickerOffsetY}px)`;
+  }
+}
+
+(function enablePickerDrag() {
+  let dragging = false;
+  let originX = 0;
+  let originY = 0;
+
+  newTerminalPickerHeader.addEventListener('mousedown', (e) => {
+    dragging = true;
+    originX = e.clientX - pickerOffsetX;
+    originY = e.clientY - pickerOffsetY;
+    newTerminalPickerHeader.classList.add('dragging');
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    pickerOffsetX = e.clientX - originX;
+    pickerOffsetY = e.clientY - originY;
+    applyPickerOffset();
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    newTerminalPickerHeader.classList.remove('dragging');
+  });
+})();
+
+function hideNewTerminalPicker() {
+  newTerminalPickerOverlay.classList.add('hidden');
+}
+
+// Wait for a newly-spawned shell to finish its startup output before writing
+// to it. Sending input too early gets echoed by the PTY line discipline BEFORE
+// the shell switches to raw mode, then zsh's line editor redraws the same
+// characters on the prompt line — so the command appears twice. We debounce
+// on data arrival: once the PTY has been quiet for `quietMs`, the shell is
+// assumed ready. A hard ceiling guarantees the command still goes out if the
+// PTY never produces output (rare: non-interactive shells, failed startup).
+function sendWhenShellReady(ptyId, data) {
+  const quietMs = 200;
+  const maxWaitMs = 2500;
+  let timer = null;
+  let fired = false;
+
+  const send = () => {
+    if (fired) return;
+    fired = true;
+    if (timer) clearTimeout(timer);
+    unsubscribe();
+    window.terminalAPI.sendInput(ptyId, data);
+  };
+
+  const unsubscribe = window.terminalAPI.onData((payload) => {
+    if (payload.id !== ptyId) return;
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(send, quietMs);
+  });
+
+  setTimeout(send, maxWaitMs);
+}
+
+async function showNewTerminalPicker(cwd) {
+  const snippets = await window.terminalAPI.getSnippets();
+
+  newTerminalPickerList.innerHTML = '';
+
+  // "Blank" option: creates an empty terminal with no injected command.
+  const blankEl = document.createElement('div');
+  blankEl.className = 'snippet-item';
+  blankEl.innerHTML = `
+    <div class="snippet-item-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="12" y1="5" x2="12" y2="19"></line>
+        <line x1="5" y1="12" x2="19" y2="12"></line>
+      </svg>
+    </div>
+    <div class="snippet-item-info">
+      <div class="snippet-item-name">Blank</div>
+      <div class="snippet-item-command">Empty terminal</div>
+    </div>
+  `;
+  blankEl.addEventListener('click', () => {
+    hideNewTerminalPicker();
+    createSession(cwd);
+  });
+  newTerminalPickerList.appendChild(blankEl);
+
+  snippets.forEach((s) => {
+    const el = document.createElement('div');
+    el.className = 'snippet-item';
+    el.innerHTML = `
+      <div class="snippet-item-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="4 17 10 11 4 5"></polyline>
+          <line x1="12" y1="19" x2="20" y2="19"></line>
+        </svg>
+      </div>
+      <div class="snippet-item-info">
+        <div class="snippet-item-name">${s.name}</div>
+        <div class="snippet-item-command">${s.command}</div>
+      </div>
+    `;
+    el.addEventListener('click', async () => {
+      hideNewTerminalPicker();
+      const session = await createSession(cwd);
+      const pane = session.panes[0];
+      sendWhenShellReady(pane.ptyId, s.command);
+    });
+    newTerminalPickerList.appendChild(el);
+  });
+
+  newTerminalPickerOverlay.classList.remove('hidden');
+}
+
+newTerminalPickerOverlay.addEventListener('click', (e) => {
+  if (e.target === newTerminalPickerOverlay) hideNewTerminalPicker();
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !newTerminalPickerOverlay.classList.contains('hidden')) {
+    hideNewTerminalPicker();
+  }
+});
 
 // ──────────────────────────────────────
 // Snippets palette
