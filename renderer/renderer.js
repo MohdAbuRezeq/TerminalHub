@@ -23,6 +23,9 @@ let sessionCounter = 0;
 // which leaves scrollTop at an arbitrary position. We explicitly restore:
 //   - if the user was scrolled up, keep them on the same line
 //   - if the user was at the bottom, pin them to the bottom
+// The follow-up scrollToBottom() in rAF catches cases where xterm's
+// render is debounced and a single sync call gets overwritten by a late
+// reflow during rapid resize events.
 function safeFit(pane) {
   const buffer = pane.term.buffer.active;
   const atBottom = buffer.viewportY >= buffer.baseY;
@@ -30,6 +33,7 @@ function safeFit(pane) {
   pane.fitAddon.fit();
   if (atBottom) {
     pane.term.scrollToBottom();
+    requestAnimationFrame(() => pane.term.scrollToBottom());
   } else {
     pane.term.scrollToLine(savedLine);
   }
@@ -865,9 +869,18 @@ function confirmClose(message = 'Close this terminal?') {
 // Resize
 // ──────────────────────────────────────
 
+// Throttle window resize to one call per animation frame. Without this,
+// the browser fires resize many times per second during a drag, each call
+// triggers a full buffer reflow, and the render lags behind — making
+// pinned-to-bottom terminals appear to drift upward mid-drag.
+let _resizeRaf = null;
 window.addEventListener('resize', () => {
-  const session = sessions.find((s) => s.id === activeId);
-  if (session) session.panes.forEach((p) => safeFit(p));
+  if (_resizeRaf !== null) return;
+  _resizeRaf = requestAnimationFrame(() => {
+    _resizeRaf = null;
+    const session = sessions.find((s) => s.id === activeId);
+    if (session) session.panes.forEach((p) => safeFit(p));
+  });
 });
 
 // ──────────────────────────────────────
