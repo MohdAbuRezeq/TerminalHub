@@ -15,6 +15,34 @@ const store = new Store({ name: 'snippets', defaults: { snippets: [] } });
 let mainWindow;
 const terminals = createTerminalStore();
 
+// PTY → renderer batching. Bursty output (npm install, log tails, `seq`) used
+// to fire one IPC per chunk; coalescing per event-loop tick collapses those
+// into one larger send and saves the main↔renderer round trips.
+const pendingData = new Map(); // id -> string[]
+let flushScheduled = false;
+
+function flushPendingData() {
+  flushScheduled = false;
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    pendingData.clear();
+    return;
+  }
+  for (const [id, chunks] of pendingData) {
+    mainWindow.webContents.send('terminal-data', { id, data: chunks.join('') });
+  }
+  pendingData.clear();
+}
+
+function queueTerminalData(id, data) {
+  let chunks = pendingData.get(id);
+  if (!chunks) pendingData.set(id, (chunks = []));
+  chunks.push(data);
+  if (!flushScheduled) {
+    flushScheduled = true;
+    setImmediate(flushPendingData);
+  }
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
@@ -29,6 +57,9 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
+      // Without this, Electron clamps the renderer's rAF/timers when the
+      // window loses focus, which stalls long-running PTY output.
+      backgroundThrottling: false,
     },
   });
 
@@ -229,13 +260,17 @@ ipcMain.handle('create-terminal', (event, { cols, rows, cwd }) => {
     }
   });
 
-  ptyProcess.onData((data) => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('terminal-data', { id, data });
-    }
-  });
+  ptyProcess.onData((data) => queueTerminalData(id, data));
 
   ptyProcess.onExit(({ exitCode }) => {
+    // Drain any buffered output for this pty before announcing exit, otherwise
+    // the renderer may see "closed" while final bytes are still queued.
+    const chunks = pendingData.get(id);
+    if (chunks && chunks.length && mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('terminal-data', { id, data: chunks.join('') });
+    }
+    pendingData.delete(id);
+
     // The pty exited on its own; reclaim the slot. take() is safe even
     // if the sender already cleaned up.
     terminals.take(sender, id);

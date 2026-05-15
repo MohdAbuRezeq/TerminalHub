@@ -9,6 +9,7 @@ const { Terminal } = require('@xterm/xterm');
 const { FitAddon } = require('@xterm/addon-fit');
 const { WebLinksAddon } = require('@xterm/addon-web-links');
 const { SearchAddon } = require('@xterm/addon-search');
+const { WebglAddon } = require('@xterm/addon-webgl');
 const { shellQuote } = require('../lib/shell');
 const { pickAdjacentDivider } = require('../lib/divider');
 
@@ -58,6 +59,10 @@ const emptyState = document.getElementById('empty-state');
 
 let sessions = []; // { id, panes[], wrapperEl, splitDirection, title, createdAt }
 let activeId = null;
+// Direct ptyId → pane lookup. Without this, every incoming chunk walks every
+// session and every pane to find the target, which gets quadratic with many
+// streaming panes.
+const paneByPtyId = new Map();
 let fontSize = 14;
 let sessionCounter = 0;
 
@@ -151,6 +156,17 @@ async function createPane(container, cwd) {
 
   term.open(paneEl);
 
+  // GPU renderer for streaming text. Falls back to DOM if the WebGL context
+  // is lost (eg. tab backgrounded too long, GPU process restart) so the pane
+  // keeps working instead of freezing on a black canvas.
+  try {
+    const webgl = new WebglAddon();
+    webgl.onContextLoss(() => webgl.dispose());
+    term.loadAddon(webgl);
+  } catch (err) {
+    console.warn('WebGL renderer unavailable, falling back to DOM:', err);
+  }
+
   await new Promise((r) => requestAnimationFrame(r));
   fitAddon.fit();
 
@@ -204,7 +220,8 @@ async function createPane(container, cwd) {
     paneEl.classList.add('focused');
   });
 
-  const pane = { ptyId, term, fitAddon, searchAddon, el: paneEl };
+  const pane = { ptyId, term, fitAddon, searchAddon, el: paneEl, session: null };
+  paneByPtyId.set(ptyId, pane);
 
   closeBtn.addEventListener('click', async (e) => {
     e.stopPropagation();
@@ -264,6 +281,7 @@ async function createSession(cwd) {
     customTitle: false,
     createdAt: new Date(),
   };
+  pane.session = session;
 
   sessions.unshift(session);
   renderSidebar();
@@ -280,6 +298,7 @@ function removeSession(id) {
   const session = sessions[idx];
   session.panes.forEach((p) => {
     window.terminalAPI.kill(p.ptyId);
+    paneByPtyId.delete(p.ptyId);
     p.term.dispose();
   });
   session.wrapperEl.remove();
@@ -444,6 +463,7 @@ async function splitPane(direction) {
 
     const newPane = await createPane(splitContainer);
     session.panes.push(newPane);
+    newPane.session = session;
     newPane.term.focus();
   } else {
     const splitContainer = session._splitContainer;
@@ -452,6 +472,7 @@ async function splitPane(direction) {
 
     const newPane = await createPane(splitContainer);
     session.panes.push(newPane);
+    newPane.session = session;
     newPane.term.focus();
   }
 
@@ -525,6 +546,7 @@ function closePaneInSession(pane) {
 
   // Kill the pty and dispose the terminal
   window.terminalAPI.kill(pane.ptyId);
+  paneByPtyId.delete(pane.ptyId);
   pane.term.dispose();
 
   // Remove the pane element and its adjacent divider. Compute the
@@ -578,32 +600,27 @@ let isRenaming = false;
 let titleUpdateTimer = null;
 
 window.terminalAPI.onData(({ id, data }) => {
-  for (const session of sessions) {
-    for (const pane of session.panes) {
-      if (pane.ptyId === id) {
-        pane.term.write(data);
-        // Debounced auto-title update — skip if user is renaming
-        if (!session.customTitle && !isRenaming) {
-          clearTimeout(titleUpdateTimer);
-          titleUpdateTimer = setTimeout(() => {
-            Promise.all([
-              window.terminalAPI.getCwd(id),
-              window.terminalAPI.getHomedir(),
-            ]).then(([cwd, home]) => {
-              if (cwd && !session.customTitle && !isRenaming) {
-                const name = cwd === home ? '~' : (cwd.split('/').pop() || 'Terminal');
-                if (session.title !== name && name !== '') {
-                  session.title = name;
-                  renderSidebar();
-                  updateUI();
-                }
-              }
-            });
-          }, 500);
+  const pane = paneByPtyId.get(id);
+  if (!pane) return;
+  pane.term.write(data);
+  const session = pane.session;
+  if (session && !session.customTitle && !isRenaming) {
+    clearTimeout(titleUpdateTimer);
+    titleUpdateTimer = setTimeout(() => {
+      Promise.all([
+        window.terminalAPI.getCwd(id),
+        window.terminalAPI.getHomedir(),
+      ]).then(([cwd, home]) => {
+        if (cwd && !session.customTitle && !isRenaming) {
+          const name = cwd === home ? '~' : (cwd.split('/').pop() || 'Terminal');
+          if (session.title !== name && name !== '') {
+            session.title = name;
+            renderSidebar();
+            updateUI();
+          }
         }
-        return;
-      }
-    }
+      });
+    }, 500);
   }
 });
 
@@ -630,6 +647,7 @@ window.terminalAPI.onExit(({ id }) => {
       }
     }
 
+    paneByPtyId.delete(pane.ptyId);
     pane.term.dispose();
     pane.el.remove();
     if (dividerToRemove) dividerToRemove.remove();
