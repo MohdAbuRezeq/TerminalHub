@@ -10,6 +10,8 @@
     "build": "esbuild renderer/renderer.js --bundle --outfile=renderer/bundle.js --platform=browser --format=iife --external:electron",
     "start": "npm run build && electron .",
     "rebuild": "electron-rebuild -f -w node-pty",
+    "postinstall": "electron-rebuild -f -w node-pty || true",
+    "test": "node --test",
     "package": "npm run build && electron-packager . TerminalHub --platform=darwin --arch=arm64 --out=dist --overwrite --icon=assets/icon.icns --app-bundle-id=com.terminalhub.app --prune=true --asar.unpackDir=node_modules/node-pty"
   },
   "dependencies": {

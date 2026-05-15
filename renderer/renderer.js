@@ -1,7 +1,50 @@
+// Some bundled deps reference `process.env.*` at module-load. Stub it before
+// the requires below evaluate, so we can drop the inline script in index.html
+// and keep CSP tight (script-src 'self').
+if (typeof window !== 'undefined' && !window.process) {
+  window.process = { env: {} };
+}
+
 const { Terminal } = require('@xterm/xterm');
 const { FitAddon } = require('@xterm/addon-fit');
 const { WebLinksAddon } = require('@xterm/addon-web-links');
 const { SearchAddon } = require('@xterm/addon-search');
+const { shellQuote } = require('../lib/shell');
+const { pickAdjacentDivider } = require('../lib/divider');
+
+// ──────────────────────────────────────
+// Tiny DOM builder — user data flows through textContent, not innerHTML,
+// so values can never escape into markup. Use the `html:` attr only for
+// trusted static markup like inline SVG icons.
+// ──────────────────────────────────────
+function el(tag, attrs = {}, children = []) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v == null || v === false) continue;
+    if (k === 'class') node.className = v;
+    else if (k === 'dataset') Object.assign(node.dataset, v);
+    else if (k === 'html') node.innerHTML = v; // trusted static only
+    else if (k === 'text') node.textContent = v;
+    else if (k.startsWith('on') && typeof v === 'function') {
+      node.addEventListener(k.slice(2).toLowerCase(), v);
+    } else if (v === true) {
+      node.setAttribute(k, '');
+    } else {
+      node.setAttribute(k, v);
+    }
+  }
+  for (const child of [].concat(children)) {
+    if (child == null || child === false) continue;
+    node.appendChild(typeof child === 'string' ? document.createTextNode(child) : child);
+  }
+  return node;
+}
+
+// Inline SVG icons — static markup, never interpolates user data.
+const ICONS = {
+  prompt: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>',
+  plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>',
+};
 
 // DOM refs
 const sidebar = document.getElementById('sidebar');
@@ -111,11 +154,21 @@ async function createPane(container, cwd) {
   await new Promise((r) => requestAnimationFrame(r));
   fitAddon.fit();
 
-  const ptyId = await window.terminalAPI.createTerminal({
-    cols: term.cols,
-    rows: term.rows,
-    cwd,
-  });
+  let ptyId;
+  try {
+    ptyId = await window.terminalAPI.createTerminal({
+      cols: term.cols,
+      rows: term.rows,
+      cwd,
+    });
+  } catch (err) {
+    // Spawn failed — clean up the half-built pane so the session doesn't
+    // end up with an orphan element + undefined ptyId.
+    console.error('Failed to create terminal:', err);
+    term.dispose();
+    paneEl.remove();
+    throw err;
+  }
 
   term.onData((data) => window.terminalAPI.sendInput(ptyId, data));
   term.onResize(({ cols, rows }) => window.terminalAPI.resize(ptyId, cols, rows));
@@ -168,7 +221,7 @@ async function createPane(container, cwd) {
     const paths = Array.from(e.dataTransfer.files)
       .map((f) => window.terminalAPI.getFilePath(f))
       .filter(Boolean)
-      .map((p) => (p.includes(' ') ? `"${p}"` : p));
+      .map(shellQuote);
     if (paths.length) {
       window.terminalAPI.sendInput(ptyId, paths.join(' '));
       term.focus();
@@ -191,7 +244,16 @@ async function createSession(cwd) {
   wrapperEl.dataset.sessionId = id;
   containerEl.appendChild(wrapperEl);
 
-  const pane = await createPane(wrapperEl, cwd);
+  let pane;
+  try {
+    pane = await createPane(wrapperEl, cwd);
+  } catch (err) {
+    // createPane already disposed its own DOM; just remove the wrapper
+    // and bail so the empty state appears instead of a phantom session.
+    wrapperEl.remove();
+    sessionCounter--;
+    throw err;
+  }
 
   const session = {
     id,
@@ -269,31 +331,24 @@ function activateSession(id) {
 function renderSidebar() {
   terminalListEl.innerHTML = '';
 
-  sessions.forEach((session, i) => {
-    const el = document.createElement('div');
-    el.className = 'terminal-item' + (session.id === activeId ? ' active' : '');
-    el.dataset.id = session.id;
-
+  sessions.forEach((session) => {
     const paneLabel = session.panes.length > 1 ? ` \u00b7 ${session.panes.length} panes` : '';
     const timeStr = session.createdAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-    el.innerHTML = `
-      <div class="item-icon">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="4 17 10 11 4 5"></polyline>
-          <line x1="12" y1="19" x2="20" y2="19"></line>
-        </svg>
-      </div>
-      <div class="item-info">
-        <div class="item-title">${session.title}</div>
-        <div class="item-subtitle">${timeStr}${paneLabel}</div>
-      </div>
-      <span class="item-dot"></span>
-      <button class="item-close" data-action="close">&times;</button>
-    `;
+    const iconEl = el('div', { class: 'item-icon', html: ICONS.prompt });
+    const titleEl = el('div', { class: 'item-title' }, session.title);
+    const subtitleEl = el('div', { class: 'item-subtitle' }, `${timeStr}${paneLabel}`);
+    const infoEl = el('div', { class: 'item-info' }, [titleEl, subtitleEl]);
+    const dotEl = el('span', { class: 'item-dot' });
+    const closeBtn = el('button', { class: 'item-close', 'data-action': 'close' }, '\u00d7');
+
+    const itemEl = el('div', {
+      class: 'terminal-item' + (session.id === activeId ? ' active' : ''),
+      dataset: { id: session.id },
+    }, [iconEl, infoEl, dotEl, closeBtn]);
 
     let clickTimer = null;
-    el.addEventListener('click', async (e) => {
+    itemEl.addEventListener('click', async (e) => {
       if (e.target.closest('[data-action="close"]')) {
         if (await confirmClose()) removeSession(session.id);
         return;
@@ -306,14 +361,13 @@ function renderSidebar() {
       }, 250);
     });
 
-    el.addEventListener('dblclick', (e) => {
+    itemEl.addEventListener('dblclick', (e) => {
       if (e.target.closest('[data-action="close"]')) return;
       if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
-      const titleEl = el.querySelector('.item-title');
-      if (titleEl) startRename(session, titleEl);
+      startRename(session, titleEl);
     });
 
-    terminalListEl.appendChild(el);
+    terminalListEl.appendChild(itemEl);
   });
 }
 
@@ -473,16 +527,16 @@ function closePaneInSession(pane) {
   window.terminalAPI.kill(pane.ptyId);
   pane.term.dispose();
 
-  // Remove the pane element and its adjacent divider
+  // Remove the pane element and its adjacent divider. Compute the
+  // divider index BEFORE mutating the DOM. Shared logic with onExit.
   const container = session._splitContainer;
-  const children = Array.from(container.children);
-  const paneIndex = children.indexOf(pane.el);
-
-  // Remove divider: prefer the one before, else the one after
-  if (paneIndex > 0 && children[paneIndex - 1]?.classList.contains('split-divider')) {
-    children[paneIndex - 1].remove();
-  } else if (paneIndex < children.length - 1 && children[paneIndex + 1]?.classList.contains('split-divider')) {
-    children[paneIndex + 1].remove();
+  const paneIndex = Array.from(container.children).indexOf(pane.el);
+  const dividerIndex = pickAdjacentDivider(paneIndex, container.children.length);
+  if (dividerIndex !== null) {
+    const candidate = container.children[dividerIndex];
+    if (candidate && candidate.classList.contains('split-divider')) {
+      candidate.remove();
+    }
   }
 
   pane.el.remove();
@@ -559,16 +613,40 @@ window.terminalAPI.onExit(({ id }) => {
     if (pIdx === -1) continue;
 
     const pane = session.panes[pIdx];
+
+    // For multi-pane sessions: compute which divider to remove BEFORE we
+    // mutate the DOM. Previously this handler always removed the LAST
+    // divider, stranding a leading orphan when the first pane exited.
+    let dividerToRemove = null;
+    if (session._splitContainer && session.panes.length > 1) {
+      const container = session._splitContainer;
+      const paneIndex = Array.from(container.children).indexOf(pane.el);
+      const dividerIndex = pickAdjacentDivider(paneIndex, container.children.length);
+      if (dividerIndex !== null) {
+        const candidate = container.children[dividerIndex];
+        if (candidate && candidate.classList.contains('split-divider')) {
+          dividerToRemove = candidate;
+        }
+      }
+    }
+
     pane.term.dispose();
     pane.el.remove();
+    if (dividerToRemove) dividerToRemove.remove();
     session.panes.splice(pIdx, 1);
 
     if (session.panes.length === 0) {
       removeSession(session.id);
     } else {
-      const dividers = session._splitContainer?.querySelectorAll('.split-divider');
-      if (dividers && dividers.length >= session.panes.length) {
-        dividers[dividers.length - 1].remove();
+      // If only one pane remains, unwrap from the split container so we
+      // don't leave a single pane inside a split shell.
+      if (session.panes.length === 1) {
+        const lastPane = session.panes[0];
+        session.wrapperEl.innerHTML = '';
+        session.wrapperEl.appendChild(lastPane.el);
+        lastPane.el.style.flex = '';
+        session.splitDirection = null;
+        session._splitContainer = null;
       }
       session.panes.forEach((p) => safeFit(p));
       session.panes[0].term.focus();
@@ -805,20 +883,13 @@ async function showNewTerminalPicker(cwd) {
   newTerminalPickerList.innerHTML = '';
 
   // "Blank" option: creates an empty terminal with no injected command.
-  const blankEl = document.createElement('div');
-  blankEl.className = 'snippet-item';
-  blankEl.innerHTML = `
-    <div class="snippet-item-icon">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-        <line x1="12" y1="5" x2="12" y2="19"></line>
-        <line x1="5" y1="12" x2="19" y2="12"></line>
-      </svg>
-    </div>
-    <div class="snippet-item-info">
-      <div class="snippet-item-name">Blank</div>
-      <div class="snippet-item-command">Empty terminal</div>
-    </div>
-  `;
+  const blankEl = el('div', { class: 'snippet-item' }, [
+    el('div', { class: 'snippet-item-icon', html: ICONS.plus }),
+    el('div', { class: 'snippet-item-info' }, [
+      el('div', { class: 'snippet-item-name' }, 'Blank'),
+      el('div', { class: 'snippet-item-command' }, 'Empty terminal'),
+    ]),
+  ]);
   blankEl.addEventListener('click', () => {
     hideNewTerminalPicker();
     createSession(cwd);
@@ -826,27 +897,20 @@ async function showNewTerminalPicker(cwd) {
   newTerminalPickerList.appendChild(blankEl);
 
   snippets.forEach((s) => {
-    const el = document.createElement('div');
-    el.className = 'snippet-item';
-    el.innerHTML = `
-      <div class="snippet-item-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="4 17 10 11 4 5"></polyline>
-          <line x1="12" y1="19" x2="20" y2="19"></line>
-        </svg>
-      </div>
-      <div class="snippet-item-info">
-        <div class="snippet-item-name">${s.name}</div>
-        <div class="snippet-item-command">${s.command}</div>
-      </div>
-    `;
-    el.addEventListener('click', async () => {
+    const row = el('div', { class: 'snippet-item' }, [
+      el('div', { class: 'snippet-item-icon', html: ICONS.prompt }),
+      el('div', { class: 'snippet-item-info' }, [
+        el('div', { class: 'snippet-item-name' }, s.name),
+        el('div', { class: 'snippet-item-command' }, s.command),
+      ]),
+    ]);
+    row.addEventListener('click', async () => {
       hideNewTerminalPicker();
       const session = await createSession(cwd);
       const pane = session.panes[0];
       sendWhenShellReady(pane.ptyId, s.command);
     });
-    newTerminalPickerList.appendChild(el);
+    newTerminalPickerList.appendChild(row);
   });
 
   newTerminalPickerOverlay.classList.remove('hidden');
@@ -894,34 +958,33 @@ async function renderSnippets() {
   snippetsEmpty.classList.toggle('hidden', snippets.length > 0);
 
   snippets.forEach((s) => {
-    const el = document.createElement('div');
-    el.className = 'snippet-item';
-    el.innerHTML = `
-      <div class="snippet-item-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="4 17 10 11 4 5"></polyline>
-          <line x1="12" y1="19" x2="20" y2="19"></line>
-        </svg>
-      </div>
-      <div class="snippet-item-info">
-        <div class="snippet-item-name">${s.name}</div>
-        <div class="snippet-item-command">${s.command}</div>
-      </div>
-      <button class="snippet-item-delete" data-action="delete" title="Delete snippet">&times;</button>
-    `;
+    const deleteBtn = el('button', {
+      class: 'snippet-item-delete',
+      'data-action': 'delete',
+      title: 'Delete snippet',
+    }, '×');
 
-    el.addEventListener('click', (e) => {
+    const row = el('div', { class: 'snippet-item' }, [
+      el('div', { class: 'snippet-item-icon', html: ICONS.prompt }),
+      el('div', { class: 'snippet-item-info' }, [
+        el('div', { class: 'snippet-item-name' }, s.name),
+        el('div', { class: 'snippet-item-command' }, s.command),
+      ]),
+      deleteBtn,
+    ]);
+
+    row.addEventListener('click', (e) => {
       if (e.target.closest('[data-action="delete"]')) return;
       pasteSnippet(s.command);
     });
 
-    el.querySelector('[data-action="delete"]').addEventListener('click', async (e) => {
+    deleteBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
       await window.terminalAPI.deleteSnippet(s.id);
       await renderSnippets();
     });
 
-    snippetsList.appendChild(el);
+    snippetsList.appendChild(row);
   });
 }
 
@@ -1040,4 +1103,9 @@ document.addEventListener('drop', (e) => e.preventDefault());
 // Boot — start with one terminal
 // ──────────────────────────────────────
 
-createSession();
+createSession().catch((err) => {
+  // Spawn failed at startup. Leave the empty state visible so the user
+  // can click "Open a Terminal" to retry.
+  console.error('Initial terminal failed to spawn:', err);
+  updateUI();
+});

@@ -1,15 +1,19 @@
-const { app, BrowserWindow, ipcMain, Menu, globalShortcut, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, dialog } = require('electron');
 const path = require('path');
 const os = require('os');
-const { execFileSync } = require('child_process');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
 const pty = require('node-pty');
 const Store = require('electron-store');
+const { getShellConfig } = require('./lib/shell');
+const { createTerminalStore } = require('./lib/terminal-store');
+
+const execFileAsync = promisify(execFile);
 
 const store = new Store({ name: 'snippets', defaults: { snippets: [] } });
 
 let mainWindow;
-const terminals = new Map();
-let terminalIdCounter = 0;
+const terminals = createTerminalStore();
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -158,8 +162,7 @@ function createWindow() {
 app.whenReady().then(createWindow);
 
 app.on('window-all-closed', () => {
-  terminals.forEach((term) => term.kill());
-  terminals.clear();
+  for (const term of terminals.takeAll()) term.kill();
   app.quit();
 });
 
@@ -179,22 +182,38 @@ ipcMain.handle('pick-folder', async () => {
 });
 
 ipcMain.handle('create-terminal', (event, { cols, rows, cwd }) => {
-  const id = ++terminalIdCounter;
-  const shell = process.env.SHELL || '/bin/zsh';
+  const { shell, args } = getShellConfig({ platform: process.platform, env: process.env });
+  const sender = event.sender.id;
 
-  const ptyProcess = pty.spawn(shell, ['--login'], {
-    name: 'xterm-256color',
-    cols: cols || 80,
-    rows: rows || 24,
-    cwd: cwd || os.homedir(),
-    env: {
-      ...process.env,
-      TERM: 'xterm-256color',
-      COLORTERM: 'truecolor',
-    },
+  let ptyProcess;
+  try {
+    ptyProcess = pty.spawn(shell, args, {
+      name: 'xterm-256color',
+      cols: cols || 80,
+      rows: rows || 24,
+      cwd: cwd || os.homedir(),
+      env: {
+        ...process.env,
+        TERM: 'xterm-256color',
+        COLORTERM: 'truecolor',
+      },
+    });
+  } catch (err) {
+    // Rethrowing causes ipcRenderer.invoke() in the renderer to reject,
+    // so createPane() can clean up its half-built DOM.
+    throw new Error(`Failed to spawn shell (${shell}): ${err.message}`);
+  }
+
+  const id = terminals.create(sender, ptyProcess);
+
+  // Release this sender's terminals when its frame goes away (renderer
+  // reload, window close), so we don't leak ptys or end up with stale
+  // ownership records.
+  event.sender.once('destroyed', () => {
+    for (const term of terminals.takeAllForSender(sender)) {
+      try { term.kill(); } catch {}
+    }
   });
-
-  terminals.set(id, ptyProcess);
 
   ptyProcess.onData((data) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -203,7 +222,9 @@ ipcMain.handle('create-terminal', (event, { cols, rows, cwd }) => {
   });
 
   ptyProcess.onExit(({ exitCode }) => {
-    terminals.delete(id);
+    // The pty exited on its own; reclaim the slot. take() is safe even
+    // if the sender already cleaned up.
+    terminals.take(sender, id);
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('terminal-exit', { id, exitCode });
     }
@@ -213,27 +234,24 @@ ipcMain.handle('create-terminal', (event, { cols, rows, cwd }) => {
 });
 
 ipcMain.on('terminal-input', (event, { id, data }) => {
-  const term = terminals.get(id);
+  const term = terminals.get(event.sender.id, id);
   if (term) term.write(data);
 });
 
 ipcMain.on('terminal-resize', (event, { id, cols, rows }) => {
-  const term = terminals.get(id);
+  const term = terminals.get(event.sender.id, id);
   if (term) {
     try {
       term.resize(cols, rows);
-    } catch (e) {
-      // ignore resize errors
+    } catch {
+      // xterm can throw on degenerate sizes during animation; safe to ignore.
     }
   }
 });
 
 ipcMain.on('terminal-kill', (event, { id }) => {
-  const term = terminals.get(id);
-  if (term) {
-    term.kill();
-    terminals.delete(id);
-  }
+  const term = terminals.take(event.sender.id, id);
+  if (term) term.kill();
 });
 
 // ──────────────────────────────────────
@@ -260,15 +278,23 @@ ipcMain.handle('delete-snippet', (event, id) => {
   return snippets;
 });
 
-ipcMain.handle('get-cwd', (event, { id }) => {
-  const term = terminals.get(id);
-  if (term) {
-    try {
-      const result = execFileSync('lsof', ['-a', '-d', 'cwd', '-p', String(term.pid), '-Fn'], { encoding: 'utf8', timeout: 2000 });
-      const match = result.match(/\nn(.*)/);
-      if (match) return match[1];
-    } catch {}
-    return os.homedir();
+// Resolve a pty's working directory via lsof. Async so the main process
+// isn't blocked on every keystroke debounce. Returns null on failure, on
+// Windows (no lsof), or for unknown ids — the renderer treats null as
+// "no update", avoiding mislabelling sessions as the home directory.
+ipcMain.handle('get-cwd', async (event, { id }) => {
+  if (process.platform === 'win32') return null;
+  const term = terminals.get(event.sender.id, id);
+  if (!term) return null;
+  try {
+    const { stdout } = await execFileAsync(
+      'lsof',
+      ['-a', '-d', 'cwd', '-p', String(term.pid), '-Fn'],
+      { encoding: 'utf8', timeout: 2000 }
+    );
+    const match = stdout.match(/\nn(.*)/);
+    return match ? match[1] : null;
+  } catch {
+    return null;
   }
-  return os.homedir();
 });

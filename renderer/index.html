@@ -2,12 +2,12 @@
 <html>
 <head>
   <meta charset="UTF-8">
+  <!-- Strict CSP: no inline scripts, no remote loads. The process.env shim
+       lives at the top of renderer.js so we don't need 'unsafe-inline' here. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'none';">
   <title>TerminalHub</title>
   <link rel="stylesheet" href="../node_modules/@xterm/xterm/css/xterm.css">
   <link rel="stylesheet" href="styles.css">
-  <script>
-    window.process = { env: {} };
-  </script>
 </head>
 <body>
 
