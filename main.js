@@ -185,6 +185,17 @@ ipcMain.handle('create-terminal', (event, { cols, rows, cwd }) => {
   const { shell, args } = getShellConfig({ platform: process.platform, env: process.env });
   const sender = event.sender.id;
 
+  // Strip vars npm seeds when TerminalHub is launched via `npm start` / the
+  // bin script. Without this, every spawned shell inherits npm_lifecycle_event,
+  // npm_config_*, etc., and tools that branch on those (eg. `npm` itself) think
+  // they're running inside a script. NODE_OPTIONS goes too so user `node`
+  // invocations don't pick up flags meant for the Electron host.
+  const cleanEnv = Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([k]) => !k.startsWith('npm_') && k !== 'NODE_OPTIONS'
+    )
+  );
+
   let ptyProcess;
   try {
     ptyProcess = pty.spawn(shell, args, {
@@ -193,9 +204,12 @@ ipcMain.handle('create-terminal', (event, { cols, rows, cwd }) => {
       rows: rows || 24,
       cwd: cwd || os.homedir(),
       env: {
-        ...process.env,
+        ...cleanEnv,
         TERM: 'xterm-256color',
         COLORTERM: 'truecolor',
+        LANG: process.env.LANG || 'en_US.UTF-8',
+        TERM_PROGRAM: 'TerminalHub',
+        TERM_PROGRAM_VERSION: app.getVersion(),
       },
     });
   } catch (err) {
