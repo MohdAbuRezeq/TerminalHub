@@ -2,6 +2,8 @@
   "name": "terminal-hub",
   "version": "1.0.0",
   "description": "Manage all your terminals in one place",
+  "license": "MIT",
+  "author": "Mohammad Abu Rezeq",
   "main": "main.js",
   "bin": {
     "terminalhub": "./bin/terminalhub.js"

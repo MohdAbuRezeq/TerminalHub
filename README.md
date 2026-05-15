@@ -97,3 +97,9 @@ bin/terminalhub.js   `terminalhub` CLI entry (runs npm start)
 ```
 
 The renderer is bundled by esbuild into `renderer/bundle.js`. Edit `renderer.js` and re-run `npm start` (or `npm run build`) to see changes.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
+
+Free to use, modify, and distribute. Attribution required. No warranty.
