@@ -4,6 +4,18 @@ Manage all your terminals in one place. A macOS Electron app built on `node-pty`
 
 > **Platform note.** Currently macOS-only. The shell is hardcoded to `$SHELL` (or `/bin/zsh`), the `--login` flag and `lsof`-based cwd detection are POSIX, and the package script targets `darwin/arm64`. Linux mostly works at runtime but the chrome (traffic-light spacing, vibrancy) is mac-only. Windows would require swapping the shell logic and dropping `lsof`.
 
+## Install (prebuilt .app)
+
+If someone gave you a copy of `TerminalHub.app` (zipped, or inside a folder named `TerminalHub-darwin-arm64`):
+
+1. Drag `TerminalHub.app` into `/Applications`.
+2. The first time you open it, macOS will refuse with "TerminalHub cannot be opened because the developer cannot be verified" (or "is damaged"). That's expected, the app isn't signed by an Apple Developer account.
+3. Get past it one of two ways:
+   - **In Finder**, right-click (or Control-click) the app → **Open** → confirm in the dialog. macOS remembers and won't ask again.
+   - **Or in Terminal**: `xattr -dr com.apple.quarantine /Applications/TerminalHub.app`, then launch normally.
+
+**Apple Silicon only** (M1/M2/M3/M4). Intel Macs need a separate build (see Package section below).
+
 ## Requirements
 
 - Node 18+
