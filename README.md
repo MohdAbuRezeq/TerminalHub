@@ -4,6 +4,15 @@ Manage all your terminals in one place. A macOS Electron app built on `node-pty`
 
 > **Platform note.** Currently macOS-only. The shell is hardcoded to `$SHELL` (or `/bin/zsh`), the `--login` flag and `lsof`-based cwd detection are POSIX, and the package script targets `darwin/arm64`. Linux mostly works at runtime but the chrome (traffic-light spacing, vibrancy) is mac-only. Windows would require swapping the shell logic and dropping `lsof`.
 
+## Highlights
+
+- **GPU-accelerated text rendering.** xterm.js's WebGL renderer is enabled by default, with a transparent fallback to the DOM renderer if the GL context is lost. Streaming text (logs, builds, LLM responses) scrolls smoothly at 60 fps where a DOM-only terminal would stutter.
+- **Stays responsive in the background.** Window-level `backgroundThrottling` is disabled, so a long build keeps drawing at full speed even when TerminalHub isn't the focused app.
+- **Coalesced PTY → renderer IPC.** PTY output is batched per event-loop tick before crossing the main↔renderer boundary, collapsing hundreds of messages per second into one. Bursty commands (`npm install`, `cat huge.log`, `seq 1 1000000`) drop noticeably in main-process CPU.
+- **O(1) pane routing.** Incoming data is dispatched through a `ptyId → pane` Map, so the cost of streaming output stays flat as you open more panes.
+- **Terminal.app-equivalent shell environment.** Spawned shells get `LANG=en_US.UTF-8`, `TERM_PROGRAM=TerminalHub`, and `TERM_PROGRAM_VERSION` populated, matching what Terminal.app exports. `npm_*` and `NODE_OPTIONS` from the launching process are stripped so they don't leak into your shell.
+- **Sessions, splits, snippets, and search.** Manage many terminals from a sidebar, split panes horizontally or vertically, save and recall command snippets, and find text in scrollback.
+
 ## Install (prebuilt .app)
 
 If someone gave you a copy of `TerminalHub.app` (zipped, or inside a folder named `TerminalHub-darwin-arm64`):
