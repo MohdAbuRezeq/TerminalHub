@@ -233,6 +233,10 @@ async function createPane(container, cwd) {
   paneByPtyId.set(ptyId, pane);
 
   term.onBell(() => {
+    // Only record bells that happened while the user wasn't on the tab.
+    // Recording bells on the active session would create false positives:
+    // you'd see a "you missed something" indicator for events you watched
+    // live, as soon as you switched away.
     if (pane.session && pane.session.id !== activeId) {
       pane.bell = true;
       refreshDots();
@@ -427,7 +431,12 @@ function paneState(pane) {
 function sessionState(session) {
   let best = 'idle';
   for (const pane of session.panes) {
-    const s = paneState(pane);
+    let s = paneState(pane);
+    // "Bell" is a look-at-me signal — pointless on the tab you're already
+    // looking at, so demote it to the underlying activity state there.
+    if (s === 'bell' && session.id === activeId) {
+      s = (pane.lastDataAt && (Date.now() - pane.lastDataAt) < RUNNING_WINDOW_MS) ? 'running' : 'idle';
+    }
     if (STATE_PRIORITY[s] > STATE_PRIORITY[best]) best = s;
   }
   return best;
@@ -838,6 +847,16 @@ window.terminalAPI.onCloseTab(async () => { if (activeId && await confirmClose()
 window.terminalAPI.onClosePane(async () => { if (await confirmClose()) closeFocusedPane(); });
 window.terminalAPI.onSplitHorizontal(() => splitPane('horizontal'));
 window.terminalAPI.onSplitVertical(() => splitPane('vertical'));
+
+window.terminalAPI.onRenameTab(() => {
+  if (!activeId) return;
+  const session = sessions.find((s) => s.id === activeId);
+  if (!session) return;
+  const titleEl = terminalListEl.querySelector(
+    `.terminal-item[data-id="${activeId}"] .item-title`
+  );
+  if (titleEl) startRename(session, titleEl);
+});
 
 window.terminalAPI.onNextTab(() => {
   const idx = sessions.findIndex((s) => s.id === activeId);

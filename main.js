@@ -98,6 +98,11 @@ function createWindow() {
           accelerator: 'CmdOrCtrl+W',
           click: () => mainWindow.webContents.send('close-tab'),
         },
+        {
+          label: 'Rename Tab',
+          accelerator: 'CmdOrCtrl+R',
+          click: () => mainWindow.webContents.send('rename-tab'),
+        },
         { type: 'separator' },
         {
           label: 'Close Pane',

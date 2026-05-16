@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('terminalAPI', {
   onSplitVertical: (cb) => ipcRenderer.on('split-vertical', cb),
   onNextTab: (cb) => ipcRenderer.on('next-tab', cb),
   onPrevTab: (cb) => ipcRenderer.on('prev-tab', cb),
+  onRenameTab: (cb) => ipcRenderer.on('rename-tab', cb),
   onToggleSearch: (cb) => ipcRenderer.on('toggle-search', cb),
   onClearTerminal: (cb) => ipcRenderer.on('clear-terminal', cb),
   onZoomIn: (cb) => ipcRenderer.on('zoom-in', cb),
