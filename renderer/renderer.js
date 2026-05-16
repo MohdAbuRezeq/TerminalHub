@@ -139,7 +139,11 @@ async function createPane(container, cwd) {
   const term = new Terminal({
     fontFamily: "'SF Mono', 'Fira Code', 'JetBrains Mono', 'Cascadia Code', Menlo, monospace",
     fontSize,
-    lineHeight: 1.3,
+    // Integer lineHeight keeps the WebGL glyph atlas on whole-pixel boundaries.
+    // 1.3 produces fractional cell heights at most font sizes (e.g. 14*1.3=18.2px),
+    // which the WebGL renderer clears and redraws at slightly different sub-pixel
+    // positions, leaving residual glyph fragments on in-place TUI rewrites.
+    lineHeight: 1,
     cursorBlink: true,
     cursorStyle: 'bar',
     scrollback: 10000,
@@ -224,10 +228,12 @@ async function createPane(container, cwd) {
 
   const pane = {
     ptyId, term, fitAddon, searchAddon, el: paneEl, session: null,
-    // Activity tracking for the sidebar status dot. lastDataAt is bumped on
-    // every chunk of pty output; bell flips true on terminal bell and stays
-    // set until the user re-activates the session.
-    lastDataAt: 0,
+    // Activity tracking for the sidebar status dot. recentChunks is a rolling
+    // window of (timestamp, byteCount) entries from the last RUNNING_WINDOW_MS.
+    // We classify as "running" based on bytes-per-window, not just "any byte
+    // recently", so a TUI cursor blink (a few bytes per second) doesn't keep
+    // the dot pulsing forever.
+    recentChunks: [],
     bell: false,
   };
   paneByPtyId.set(ptyId, pane);
@@ -415,16 +421,34 @@ function renderSidebar() {
   refreshDots();
 }
 
-// Activity dot state, computed on demand from pane.lastDataAt + pane.bell.
+// Activity dot state, computed on demand from pane.recentChunks + pane.bell.
 // Priority: bell > running > idle. We poll every 500ms to flip running→idle
 // once output stops streaming; we don't full-rerender the sidebar, just swap
 // the dot's class so we never thrash layout while a process is chatty.
+//
+// "Running" is rate-based, not presence-based. A TUI sitting idle (Claude
+// Code, vim, etc.) still emits a trickle of bytes for cursor blinks and
+// status redraws; if we counted those as "running" the dot would pulse
+// forever. The threshold below filters that noise out while still catching
+// real streaming output, which is orders of magnitude larger.
 const RUNNING_WINDOW_MS = 2000;
+const RUNNING_BYTE_THRESHOLD = 400;
 const STATE_PRIORITY = { idle: 0, running: 1, bell: 2 };
+
+function recentBytes(pane) {
+  if (!pane.recentChunks || pane.recentChunks.length === 0) return 0;
+  const cutoff = Date.now() - RUNNING_WINDOW_MS;
+  while (pane.recentChunks.length > 0 && pane.recentChunks[0].t < cutoff) {
+    pane.recentChunks.shift();
+  }
+  let total = 0;
+  for (const c of pane.recentChunks) total += c.n;
+  return total;
+}
 
 function paneState(pane) {
   if (pane.bell) return 'bell';
-  if (pane.lastDataAt && (Date.now() - pane.lastDataAt) < RUNNING_WINDOW_MS) return 'running';
+  if (recentBytes(pane) >= RUNNING_BYTE_THRESHOLD) return 'running';
   return 'idle';
 }
 
@@ -432,10 +456,10 @@ function sessionState(session) {
   let best = 'idle';
   for (const pane of session.panes) {
     let s = paneState(pane);
-    // "Bell" is a look-at-me signal — pointless on the tab you're already
+    // "Bell" is a look-at-me signal, pointless on the tab you're already
     // looking at, so demote it to the underlying activity state there.
     if (s === 'bell' && session.id === activeId) {
-      s = (pane.lastDataAt && (Date.now() - pane.lastDataAt) < RUNNING_WINDOW_MS) ? 'running' : 'idle';
+      s = recentBytes(pane) >= RUNNING_BYTE_THRESHOLD ? 'running' : 'idle';
     }
     if (STATE_PRIORITY[s] > STATE_PRIORITY[best]) best = s;
   }
@@ -666,7 +690,7 @@ let titleUpdateTimer = null;
 window.terminalAPI.onData(({ id, data }) => {
   const pane = paneByPtyId.get(id);
   if (!pane) return;
-  pane.lastDataAt = Date.now();
+  pane.recentChunks.push({ t: Date.now(), n: data.length || 0 });
   pane.term.write(data);
   const session = pane.session;
   if (session && !session.customTitle && !isRenaming) {

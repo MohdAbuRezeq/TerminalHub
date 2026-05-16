@@ -85,12 +85,12 @@ function createWindow() {
       submenu: [
         {
           label: 'New Tab',
-          accelerator: 'CmdOrCtrl+T',
+          accelerator: 'CmdOrCtrl+N',
           click: () => mainWindow.webContents.send('new-tab'),
         },
         {
           label: 'New Tab in Folder...',
-          accelerator: 'CmdOrCtrl+Shift+T',
+          accelerator: 'CmdOrCtrl+T',
           click: () => mainWindow.webContents.send('new-tab-in-folder'),
         },
         {
