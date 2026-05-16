@@ -156,9 +156,14 @@ async function createPane(container, cwd) {
 
   term.open(paneEl);
 
-  // GPU renderer for streaming text. Falls back to DOM if the WebGL context
-  // is lost (eg. tab backgrounded too long, GPU process restart) so the pane
-  // keeps working instead of freezing on a black canvas.
+  await new Promise((r) => requestAnimationFrame(r));
+  fitAddon.fit();
+
+  // GPU renderer for streaming text. Loaded after fit() so the glyph atlas
+  // is built against the final cell metrics, not the default 80x24 canvas.
+  // Loading before fit causes ghosting on in-place updates (TUI spinners).
+  // Falls back to DOM if the WebGL context is lost (eg. tab backgrounded too
+  // long, GPU process restart) so the pane keeps working instead of freezing.
   try {
     const webgl = new WebglAddon();
     webgl.onContextLoss(() => webgl.dispose());
@@ -166,9 +171,6 @@ async function createPane(container, cwd) {
   } catch (err) {
     console.warn('WebGL renderer unavailable, falling back to DOM:', err);
   }
-
-  await new Promise((r) => requestAnimationFrame(r));
-  fitAddon.fit();
 
   let ptyId;
   try {
