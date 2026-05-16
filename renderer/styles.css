@@ -289,13 +289,37 @@ body {
   color: white;
 }
 
-/* Active indicator dot */
+/* Activity indicator dot — driven by JS class (idle | running | bell). */
 .terminal-item .item-dot {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
-  background: var(--green);
   flex-shrink: 0;
+  background: var(--text-dim);
+  opacity: 0.35;
+  transition: background 0.2s ease, opacity 0.2s ease;
+}
+
+.terminal-item .item-dot.idle {
+  background: var(--text-dim);
+  opacity: 0.35;
+}
+
+.terminal-item .item-dot.running {
+  background: var(--accent);
+  opacity: 1;
+  animation: itemDotPulse 1.4s ease-out infinite;
+}
+
+.terminal-item .item-dot.bell {
+  background: var(--blue);
+  opacity: 1;
+  box-shadow: 0 0 6px rgba(107, 163, 214, 0.6);
+}
+
+@keyframes itemDotPulse {
+  0%   { box-shadow: 0 0 0 0   rgba(218, 119, 86, 0.55); }
+  100% { box-shadow: 0 0 0 7px rgba(218, 119, 86, 0); }
 }
 
 /* Sidebar footer */

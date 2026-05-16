@@ -222,8 +222,22 @@ async function createPane(container, cwd) {
     paneEl.classList.add('focused');
   });
 
-  const pane = { ptyId, term, fitAddon, searchAddon, el: paneEl, session: null };
+  const pane = {
+    ptyId, term, fitAddon, searchAddon, el: paneEl, session: null,
+    // Activity tracking for the sidebar status dot. lastDataAt is bumped on
+    // every chunk of pty output; bell flips true on terminal bell and stays
+    // set until the user re-activates the session.
+    lastDataAt: 0,
+    bell: false,
+  };
   paneByPtyId.set(ptyId, pane);
+
+  term.onBell(() => {
+    if (pane.session && pane.session.id !== activeId) {
+      pane.bell = true;
+      refreshDots();
+    }
+  });
 
   closeBtn.addEventListener('click', async (e) => {
     e.stopPropagation();
@@ -331,6 +345,9 @@ function activateSession(id) {
   const session = sessions.find((s) => s.id === id);
   if (!session) return;
 
+  // Looking at a session clears any pending bell on its panes.
+  session.panes.forEach((p) => { p.bell = false; });
+
   session.wrapperEl.classList.add('active');
 
   const itemEl = document.querySelector(`.terminal-item[data-id="${id}"]`);
@@ -390,7 +407,43 @@ function renderSidebar() {
 
     terminalListEl.appendChild(itemEl);
   });
+
+  refreshDots();
 }
+
+// Activity dot state, computed on demand from pane.lastDataAt + pane.bell.
+// Priority: bell > running > idle. We poll every 500ms to flip running→idle
+// once output stops streaming; we don't full-rerender the sidebar, just swap
+// the dot's class so we never thrash layout while a process is chatty.
+const RUNNING_WINDOW_MS = 2000;
+const STATE_PRIORITY = { idle: 0, running: 1, bell: 2 };
+
+function paneState(pane) {
+  if (pane.bell) return 'bell';
+  if (pane.lastDataAt && (Date.now() - pane.lastDataAt) < RUNNING_WINDOW_MS) return 'running';
+  return 'idle';
+}
+
+function sessionState(session) {
+  let best = 'idle';
+  for (const pane of session.panes) {
+    const s = paneState(pane);
+    if (STATE_PRIORITY[s] > STATE_PRIORITY[best]) best = s;
+  }
+  return best;
+}
+
+function refreshDots() {
+  for (const session of sessions) {
+    const dot = terminalListEl.querySelector(`.terminal-item[data-id="${session.id}"] .item-dot`);
+    if (!dot) continue;
+    const state = sessionState(session);
+    const cls = `item-dot ${state}`;
+    if (dot.className !== cls) dot.className = cls;
+  }
+}
+
+setInterval(refreshDots, 500);
 
 function startRename(session, titleEl) {
   isRenaming = true;
@@ -604,6 +657,7 @@ let titleUpdateTimer = null;
 window.terminalAPI.onData(({ id, data }) => {
   const pane = paneByPtyId.get(id);
   if (!pane) return;
+  pane.lastDataAt = Date.now();
   pane.term.write(data);
   const session = pane.session;
   if (session && !session.customTitle && !isRenaming) {
@@ -945,6 +999,41 @@ document.addEventListener('keydown', (e) => {
     hideNewTerminalPicker();
   }
 });
+
+// Arrow-key navigation. Capture phase so xterm's textarea handler doesn't
+// swallow these before us. We pass through when an <input> is focused so
+// search/rename keep their native Cmd+arrow line-start/end behaviour.
+//   Cmd+Up/Down    → prev/next session in sidebar
+//   Cmd+Left/Right → prev/next pane inside the active session
+document.addEventListener('keydown', (e) => {
+  if (!e.metaKey) return;
+  if (e.altKey || e.shiftKey || e.ctrlKey) return;
+  if (e.target && e.target.tagName === 'INPUT') return;
+
+  if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+    if (sessions.length === 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const idx = sessions.findIndex((s) => s.id === activeId);
+    const start = idx === -1 ? 0 : idx;
+    const delta = e.key === 'ArrowDown' ? 1 : -1;
+    const next = (start + delta + sessions.length) % sessions.length;
+    activateSession(sessions[next].id);
+    return;
+  }
+
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+    const session = sessions.find((s) => s.id === activeId);
+    if (!session || session.panes.length < 2) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const focusedIdx = session.panes.findIndex((p) => p.el.classList.contains('focused'));
+    const start = focusedIdx === -1 ? 0 : focusedIdx;
+    const delta = e.key === 'ArrowRight' ? 1 : -1;
+    const next = (start + delta + session.panes.length) % session.panes.length;
+    session.panes[next].term.focus();
+  }
+}, true);
 
 // ──────────────────────────────────────
 // Snippets palette
