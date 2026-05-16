@@ -90,7 +90,7 @@ function createWindow() {
         },
         {
           label: 'New Tab in Folder...',
-          accelerator: 'CmdOrCtrl+T',
+          accelerator: 'CmdOrCtrl+M',
           click: () => mainWindow.webContents.send('new-tab-in-folder'),
         },
         {
