@@ -9,7 +9,6 @@ const { Terminal } = require('@xterm/xterm');
 const { FitAddon } = require('@xterm/addon-fit');
 const { WebLinksAddon } = require('@xterm/addon-web-links');
 const { SearchAddon } = require('@xterm/addon-search');
-const { WebglAddon } = require('@xterm/addon-webgl');
 const { shellQuote } = require('../lib/shell');
 const { pickAdjacentDivider } = require('../lib/divider');
 
@@ -139,10 +138,10 @@ async function createPane(container, cwd) {
   const term = new Terminal({
     fontFamily: "'SF Mono', 'Fira Code', 'JetBrains Mono', 'Cascadia Code', Menlo, monospace",
     fontSize,
-    // Integer lineHeight keeps the WebGL glyph atlas on whole-pixel boundaries.
-    // 1.3 produces fractional cell heights at most font sizes (e.g. 14*1.3=18.2px),
-    // which the WebGL renderer clears and redraws at slightly different sub-pixel
-    // positions, leaving residual glyph fragments on in-place TUI rewrites.
+    // Integer lineHeight keeps cell heights on whole-pixel boundaries. 1.3
+    // produces fractional cell heights at most font sizes (e.g. 14*1.3=18.2px),
+    // which get cleared and redrawn at slightly different sub-pixel positions,
+    // leaving residual glyph fragments on in-place TUI rewrites.
     lineHeight: 1,
     cursorBlink: true,
     cursorStyle: 'bar',
@@ -163,18 +162,18 @@ async function createPane(container, cwd) {
   await new Promise((r) => requestAnimationFrame(r));
   fitAddon.fit();
 
-  // GPU renderer for streaming text. Loaded after fit() so the glyph atlas
-  // is built against the final cell metrics, not the default 80x24 canvas.
-  // Loading before fit causes ghosting on in-place updates (TUI spinners).
-  // Falls back to DOM if the WebGL context is lost (eg. tab backgrounded too
-  // long, GPU process restart) so the pane keeps working instead of freezing.
-  try {
-    const webgl = new WebglAddon();
-    webgl.onContextLoss(() => webgl.dispose());
-    term.loadAddon(webgl);
-  } catch (err) {
-    console.warn('WebGL renderer unavailable, falling back to DOM:', err);
-  }
+  // NOTE: we deliberately do NOT load @xterm/addon-webgl here.
+  //
+  // On Electron 33 / macOS 15 / Apple Silicon, addon-webgl@0.19.0 (the latest
+  // release) leaks the pane's GPU surfaces: each attached instance pins ~50MB
+  // of IOSurface in the GPU helper process, and WebglAddon.dispose() never
+  // returns, so `term.dispose()` can't hand those surfaces back. Every pane
+  // ever opened therefore keeps its GPU memory for the lifetime of the app.
+  // Measured at 1.3GB of orphaned IOSurface after ~11 days of normal use.
+  //
+  // Measured, same machine, 12 panes: WebGL 689MB of IOSurface vs 30MB on the
+  // DOM renderer, and pane teardown goes from "hangs forever" to ~1ms with
+  // the surfaces actually released.
 
   let ptyId;
   try {
