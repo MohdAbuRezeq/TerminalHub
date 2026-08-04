@@ -71,8 +71,8 @@ Produces `dist/TerminalHub-darwin-arm64/TerminalHub.app`. Note: `node-pty` must 
 
 | Action | Shortcut |
 |---|---|
-| New tab | ⌘T |
-| New tab in folder... | ⇧⌘T |
+| New tab | ⌘N |
+| New tab in folder... | ⌘M |
 | Close tab | ⌘W |
 | Close pane | ⇧⌘W |
 | Split horizontal | ⌘D |
@@ -82,6 +82,18 @@ Produces `dist/TerminalHub-darwin-arm64/TerminalHub.app`. Note: `node-pty` must 
 | Clear terminal | ⌘K |
 | Snippets palette | ⇧⌘S |
 | Zoom in / out / reset | ⌘= / ⌘- / ⌘0 |
+| Move input cursor to mouse | Click (input line) or ⌥Click |
+| Delete selected input text | select + ⌫ |
+| Select input line / whole buffer | ⌘A / ⌘A twice |
+
+Mouse editing on the input line works by synthesizing keystrokes (the shell owns the line, the terminal only paints it): a quick plain click on the line being edited sends the right number of arrow presses to walk the cursor there, and Backspace with a selection sends arrows to the selection end plus one backspace per selected character. Both only act on the cursor's line — clicks and selections on older output are left alone, unwritten blank cells count for nothing (clicking past the end of the text walks to the end, selecting past it deletes only the real characters), and nothing is synthesized in alternate-screen apps like `vim` or when the running program has mouse tracking enabled. ⌥Click (xterm's `altClickMovesCursor`) additionally works in those cases.
+
+Known limits of the synthesis (all inherent to the terminal not knowing what the program considers editable):
+
+- Programs that read input without a line editor (password prompts like `sudo`, plain `read`) treat arrow bytes as input; clicking on printed text left of the cursor on their prompt row can inject them. Clicks on the blank part of the row send nothing.
+- Autosuggestion plugins that accept on forward-char (fish, zsh-autosuggestions) can accept the ghost suggestion when you click to the right of the cursor over it.
+- In multi-line TUI inputs (e.g. Claude Code's box), ⌘A selects the cursor's visual row only, and ⌘A + ⌫ can delete a few characters beyond it — the row's prompt decoration is indistinguishable from typed text.
+- Over high-latency ssh, counts come from the locally rendered screen; clicking and pressing Backspace before the remote echo catches up can act on stale positions.
 
 ## Project layout
 

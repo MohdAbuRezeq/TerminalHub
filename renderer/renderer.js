@@ -11,6 +11,7 @@ const { WebLinksAddon } = require('@xterm/addon-web-links');
 const { SearchAddon } = require('@xterm/addon-search');
 const { shellQuote } = require('../lib/shell');
 const { pickAdjacentDivider } = require('../lib/divider');
+const { computeDeleteSequence, computeClickMoveSequence, lineRunBounds } = require('../lib/line-edit');
 
 // ──────────────────────────────────────
 // Tiny DOM builder — user data flows through textContent, not innerHTML,
@@ -119,6 +120,69 @@ const termTheme = {
   brightWhite: '#f5efe8',
 };
 
+// Adapt a live xterm buffer to the getLine() interface of lib/line-edit.
+// trimRight MUST be true: with false, unwritten cells read as spaces, get
+// counted as characters, and — because the shell clamps arrow moves at the
+// end of input but never clamps backspaces — an overshooting drag-select
+// followed by Backspace deletes unselected text left of the selection.
+// Trimming drops only no-content cells (typed spaces survive), including
+// the phantom cell a wide char leaves when it early-wraps a row.
+function bufferLineAdapter(buffer) {
+  return (y) => {
+    const line = buffer.getLine(y);
+    if (!line) return null;
+    return {
+      isWrapped: line.isWrapped,
+      text: (a, b) => line.translateToString(true, a, b),
+    };
+  };
+}
+
+// Returns the escape sequence that deletes the selected text, or null when
+// synthesizing would be unsafe: alternate buffer (vim & co. would interpret
+// the keys as commands, not edits) or selection off the cursor's line.
+function buildSelectionDeleteSequence(term) {
+  const buffer = term.buffer.active;
+  if (buffer.type !== 'normal') return null;
+  const sel = term.getSelectionPosition();
+  if (!sel) return null;
+  return computeDeleteSequence({
+    cursorX: buffer.cursorX,
+    cursorAbsY: buffer.baseY + buffer.cursorY,
+    selStart: sel.start,
+    selEnd: sel.end,
+    cols: term.cols,
+    applicationCursor: term.modes.applicationCursorKeysMode,
+    getLine: bufferLineAdapter(buffer),
+  });
+}
+
+// Translate a plain click into the arrow sequence that walks the shell
+// cursor to the clicked cell. Null when the running app owns the mouse
+// (tracking mode on), we're on the alternate screen (vim & co.), or the
+// click is off the line being edited — those clicks stay pure focus clicks.
+function buildClickMoveSequence(term, event) {
+  const buffer = term.buffer.active;
+  if (buffer.type !== 'normal') return null;
+  if (term.modes.mouseTrackingMode !== 'none') return null;
+  const screen = term.element && term.element.querySelector('.xterm-screen');
+  if (!screen) return null;
+  const rect = screen.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return null;
+  const col = Math.floor(((event.clientX - rect.left) / rect.width) * term.cols);
+  const row = Math.floor(((event.clientY - rect.top) / rect.height) * term.rows);
+  if (col < 0 || col >= term.cols || row < 0 || row >= term.rows) return null;
+  return computeClickMoveSequence({
+    clickX: col,
+    clickAbsY: buffer.viewportY + row,
+    cursorX: buffer.cursorX,
+    cursorAbsY: buffer.baseY + buffer.cursorY,
+    cols: term.cols,
+    applicationCursor: term.modes.applicationCursorKeysMode,
+    getLine: bufferLineAdapter(buffer),
+  });
+}
+
 // ──────────────────────────────────────
 // Create a terminal pane
 // ──────────────────────────────────────
@@ -148,6 +212,10 @@ async function createPane(container, cwd) {
     scrollback: 10000,
     allowProposedApi: true,
     macOptionIsMeta: true,
+    // Option+Click walks the shell cursor to the clicked cell by synthesizing
+    // arrow-key presses. This is xterm's default, pinned here so a future
+    // library default change can't silently remove the behavior.
+    altClickMovesCursor: true,
     theme: termTheme,
   });
 
@@ -217,6 +285,22 @@ async function createPane(container, cwd) {
       navigator.clipboard.writeText(cleaned);
       return false;
     }
+
+    // Select text on the input line, press Backspace → delete the selection.
+    if (
+      e.type === 'keydown' &&
+      (e.key === 'Backspace' || e.key === 'Delete') &&
+      !e.metaKey && !e.ctrlKey && !e.altKey &&
+      term.hasSelection()
+    ) {
+      const seq = buildSelectionDeleteSequence(term);
+      if (seq) {
+        window.terminalAPI.sendInput(ptyId, seq);
+        term.clearSelection();
+        e.preventDefault();
+        return false;
+      }
+    }
     return true;
   });
 
@@ -251,6 +335,29 @@ async function createPane(container, cwd) {
   closeBtn.addEventListener('click', async (e) => {
     e.stopPropagation();
     if (await confirmClose()) closePaneInSession(pane);
+  });
+
+  // Plain click on the line being edited walks the shell cursor to the
+  // clicked cell. Only quick, drag-free, unmodified left clicks qualify —
+  // drags stay selections, ⌥-click stays xterm's altClickMovesCursor, and
+  // clicks elsewhere in the buffer stay pure focus clicks (the builder
+  // returns null for those).
+  let clickDown = null;
+  paneEl.addEventListener('mousedown', (e) => {
+    clickDown = e.button === 0 && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey
+      ? { x: e.clientX, y: e.clientY, t: Date.now() }
+      : null;
+  });
+  paneEl.addEventListener('mouseup', (e) => {
+    const down = clickDown;
+    clickDown = null;
+    if (!down || e.button !== 0) return;
+    if (Date.now() - down.t > 500) return;
+    if (Math.abs(e.clientX - down.x) > 4 || Math.abs(e.clientY - down.y) > 4) return;
+    if (term.hasSelection()) return;
+    if (!term.element || !term.element.contains(e.target)) return;
+    const seq = buildClickMoveSequence(term, e);
+    if (seq) window.terminalAPI.sendInput(ptyId, seq);
   });
 
   // Drag-and-drop: drop a file onto the pane to paste its path
@@ -894,6 +1001,52 @@ window.terminalAPI.onPrevTab(() => {
   if (sessions.length > 0) {
     const prev = (idx - 1 + sessions.length) % sessions.length;
     activateSession(sessions[prev].id);
+  }
+});
+
+// ⌘A: first press selects the line being edited (prompt row plus its
+// soft-wrapped continuations); pressing again — or being on the alternate
+// screen, where there's no input line — selects the whole buffer. Regular
+// inputs (search, rename, snippet form) keep their native select-all.
+window.terminalAPI.onSelectAll(() => {
+  const ae = document.activeElement;
+  if (
+    ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA') &&
+    !ae.classList.contains('xterm-helper-textarea')
+  ) {
+    if (typeof ae.select === 'function') ae.select();
+    return;
+  }
+
+  const session = sessions.find((s) => s.id === activeId);
+  if (!session) return;
+  const pane = session.panes.find((p) => p.el.classList.contains('focused')) || session.panes[0];
+  if (!pane) return;
+
+  const term = pane.term;
+  const buffer = term.buffer.active;
+  if (buffer.type !== 'normal') {
+    term.selectAll();
+    return;
+  }
+
+  const { runStart, runEnd } = lineRunBounds(
+    bufferLineAdapter(buffer),
+    buffer.baseY + buffer.cursorY
+  );
+
+  // selectLines() produces exactly [0, runStart] → [cols, runEnd]; if that
+  // selection is already active, this press is the second one — expand.
+  const sel = term.getSelectionPosition();
+  const lineAlreadySelected =
+    sel &&
+    sel.start.x === 0 && sel.start.y === runStart &&
+    sel.end.x === term.cols && sel.end.y === runEnd;
+
+  if (lineAlreadySelected) {
+    term.selectAll();
+  } else {
+    term.selectLines(runStart, runEnd);
   }
 });
 

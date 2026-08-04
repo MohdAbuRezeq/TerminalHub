@@ -138,7 +138,22 @@ function createWindow() {
       submenu: [
         { role: 'copy' },
         { role: 'paste' },
-        { role: 'selectAll' },
+        {
+          // Not the selectAll role: that grabs the whole buffer. The
+          // renderer selects the line being edited first, everything on a
+          // second press.
+          label: 'Select All',
+          accelerator: 'CmdOrCtrl+A',
+          click: () => {
+            // DevTools is its own webContents; the custom accelerator would
+            // otherwise steal Cmd+A from its inputs.
+            if (mainWindow.webContents.isDevToolsFocused()) {
+              mainWindow.webContents.devToolsWebContents?.selectAll();
+              return;
+            }
+            mainWindow.webContents.send('select-all');
+          },
+        },
         { type: 'separator' },
         {
           label: 'Find',
