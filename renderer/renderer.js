@@ -11,7 +11,8 @@ const { WebLinksAddon } = require('@xterm/addon-web-links');
 const { SearchAddon } = require('@xterm/addon-search');
 const { shellQuote } = require('../lib/shell');
 const { pickAdjacentDivider } = require('../lib/divider');
-const { computeDeleteSequence, computeClickMoveSequence, lineRunBounds } = require('../lib/line-edit');
+const { computeDeleteSequence, computeBlockDeleteSequence, computeClickMoveSequence, lineRunBounds, blockRunBounds } = require('../lib/line-edit');
+const { isShellProcess, folderName, shortPath, tabSubtitle, moveItem } = require('../lib/tabs');
 
 // ──────────────────────────────────────
 // Tiny DOM builder — user data flows through textContent, not innerHTML,
@@ -47,6 +48,58 @@ const ICONS = {
   plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>',
 };
 
+// Font choices. `probe` is the family name used to test whether the font
+// is installed; entries without one are system aliases that always work.
+const FONT_CHOICES = {
+  terminal: [
+    { id: 'system', label: 'SF Mono (system)', stack: "ui-monospace, 'SF Mono', Menlo, monospace" },
+    { id: 'menlo', label: 'Menlo', probe: 'Menlo', stack: "Menlo, monospace" },
+    { id: 'monaco', label: 'Monaco', probe: 'Monaco', stack: "Monaco, monospace" },
+    { id: 'jetbrains', label: 'JetBrains Mono', probe: 'JetBrains Mono', stack: "'JetBrains Mono', monospace" },
+    { id: 'fira', label: 'Fira Code', probe: 'Fira Code', stack: "'Fira Code', monospace" },
+    { id: 'cascadia', label: 'Cascadia Code', probe: 'Cascadia Code', stack: "'Cascadia Code', monospace" },
+    { id: 'source', label: 'Source Code Pro', probe: 'Source Code Pro', stack: "'Source Code Pro', monospace" },
+    { id: 'plex', label: 'IBM Plex Mono', probe: 'IBM Plex Mono', stack: "'IBM Plex Mono', monospace" },
+    { id: 'hack', label: 'Hack', probe: 'Hack', stack: "Hack, monospace" },
+    { id: 'andale', label: 'Andale Mono', probe: 'Andale Mono', stack: "'Andale Mono', monospace" },
+    { id: 'courier', label: 'Courier New', probe: 'Courier New', stack: "'Courier New', monospace" },
+  ],
+  ui: [
+    { id: 'figtree', label: 'Figtree', stack: "'Figtree', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif" },
+    { id: 'sf', label: 'San Francisco (system)', stack: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif" },
+    { id: 'lucida', label: 'Lucida Grande', probe: 'Lucida Grande', stack: "'Lucida Grande', -apple-system, sans-serif" },
+    { id: 'serif', label: 'New York (serif)', stack: "ui-serif, 'New York', 'Iowan Old Style', Georgia, serif" },
+    { id: 'rounded', label: 'SF Rounded', stack: "ui-rounded, -apple-system, sans-serif" },
+    { id: 'avenir', label: 'Avenir Next', probe: 'Avenir Next', stack: "'Avenir Next', -apple-system, sans-serif" },
+    { id: 'helvetica', label: 'Helvetica Neue', probe: 'Helvetica Neue', stack: "'Helvetica Neue', -apple-system, sans-serif" },
+    { id: 'optima', label: 'Optima', probe: 'Optima', stack: "Optima, -apple-system, sans-serif" },
+    { id: 'charter', label: 'Charter', probe: 'Charter', stack: "Charter, Georgia, serif" },
+    { id: 'georgia', label: 'Georgia', probe: 'Georgia', stack: "Georgia, serif" },
+  ],
+};
+
+function loadFontChoice(kind) {
+  let id = null;
+  try { id = localStorage.getItem(`font.${kind}`); } catch { /* fall through to default */ }
+  // Unknown or missing id falls back to the first entry, the default.
+  return FONT_CHOICES[kind].some((f) => f.id === id) ? id : FONT_CHOICES[kind][0].id;
+}
+
+const fontChoice = { terminal: loadFontChoice('terminal'), ui: loadFontChoice('ui') };
+
+// Arabic letters for the terminal come from a bundled monospace font (see
+// the @font-face in styles.css). It goes just before the generic fallback,
+// so the chosen font still draws everything it can.
+const ARABIC_MONO = "'Cascadia Mono Arabic'";
+
+// Hebrew, Arabic and their presentation forms.
+const RTL_TEXT = /[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFC]/;
+
+function fontStack(kind) {
+  const stack = FONT_CHOICES[kind].find((f) => f.id === fontChoice[kind]).stack;
+  return kind === 'terminal' ? stack.replace(/, monospace$/, `, ${ARABIC_MONO}, monospace`) : stack;
+}
+
 // DOM refs
 const sidebar = document.getElementById('sidebar');
 const terminalListEl = document.getElementById('terminal-list');
@@ -63,8 +116,27 @@ let activeId = null;
 // session and every pane to find the target, which gets quadratic with many
 // streaming panes.
 const paneByPtyId = new Map();
-let fontSize = 14;
+const TERM_SIZE = { min: 8, max: 32, fallback: 14 };
+const UI_SCALE = { min: 80, max: 150, step: 10, fallback: 100 }; // percent
+
+function loadNumber(key, { min, max, fallback }) {
+  let n = NaN;
+  try { n = Number(localStorage.getItem(key)); } catch { /* use fallback */ }
+  return Number.isFinite(n) && n >= min && n <= max ? n : fallback;
+}
+
+let fontSize = loadNumber('font.terminal.size', TERM_SIZE);
+let uiScale = loadNumber('font.ui.scale', UI_SCALE);
 let sessionCounter = 0;
+
+// Home folder, for "~" in tab names. Fetched once; names fall back to full
+// paths until it arrives.
+let homeDir = null;
+window.terminalAPI.getHomedir().then((h) => { homeDir = h; }).catch(() => {});
+
+// True while saved tabs are being rebuilt at launch: nothing is saved or
+// announced until the set is complete.
+let restoring = false;
 
 // Wrap fitAddon.fit() to preserve scroll position across reflows.
 // fit() can reflow the buffer (e.g. on window resize, visibility toggle),
@@ -92,32 +164,32 @@ function genId() {
 }
 
 // ──────────────────────────────────────
-// Terminal theme — warm dark to match UI
+// Terminal theme, matches --main-bg in styles.css
 // ──────────────────────────────────────
 
 const termTheme = {
-  background: '#292724',
-  foreground: '#e8e0d6',
-  cursor: '#da7756',
-  cursorAccent: '#292724',
-  selectionBackground: '#4a453f',
-  selectionForeground: '#e8e0d6',
-  black: '#1c1b1a',
+  background: '#1b1b1a',
+  foreground: '#eceae4',
+  cursor: '#d97757',
+  cursorAccent: '#1b1b1a',
+  selectionBackground: '#45443f',
+  selectionForeground: '#eceae4',
+  black: '#171716',
   red: '#e05f5f',
   green: '#8fba6a',
   yellow: '#d4a84b',
   blue: '#6ba3d6',
   magenta: '#c07ed6',
   cyan: '#5fbfb7',
-  white: '#e8e0d6',
-  brightBlack: '#5a534b',
+  white: '#eceae4',
+  brightBlack: '#6b6963',
   brightRed: '#e87878',
   brightGreen: '#a3d07a',
   brightYellow: '#e0b85e',
   brightBlue: '#82b6e0',
   brightMagenta: '#d094e5',
   brightCyan: '#78d1c9',
-  brightWhite: '#f5efe8',
+  brightWhite: '#f7f6f2',
 };
 
 // Adapt a live xterm buffer to the getLine() interface of lib/line-edit.
@@ -139,13 +211,24 @@ function bufferLineAdapter(buffer) {
 }
 
 // Returns the escape sequence that deletes the selected text, or null when
-// synthesizing would be unsafe: alternate buffer (vim & co. would interpret
-// the keys as commands, not edits) or selection off the cursor's line.
+// synthesizing would be unsafe: selection off the text being typed, or a
+// partial selection on the alternate screen (vim & co. would interpret the
+// keys as commands, and cells there don't map cleanly to characters). The
+// one alternate-screen case handled is "everything typed is selected".
 function buildSelectionDeleteSequence(term) {
   const buffer = term.buffer.active;
-  if (buffer.type !== 'normal') return null;
   const sel = term.getSelectionPosition();
   if (!sel) return null;
+  if (buffer.type !== 'normal') {
+    return computeBlockDeleteSequence({
+      cursorAbsY: buffer.baseY + buffer.cursorY,
+      selStart: sel.start,
+      selEnd: sel.end,
+      cols: term.cols,
+      applicationCursor: term.modes.applicationCursorKeysMode,
+      getLine: bufferLineAdapter(buffer),
+    });
+  }
   return computeDeleteSequence({
     cursorX: buffer.cursorX,
     cursorAbsY: buffer.baseY + buffer.cursorY,
@@ -200,7 +283,7 @@ async function createPane(container, cwd) {
   paneEl.appendChild(closeBtn);
 
   const term = new Terminal({
-    fontFamily: "'SF Mono', 'Fira Code', 'JetBrains Mono', 'Cascadia Code', Menlo, monospace",
+    fontFamily: fontStack('terminal'),
     fontSize,
     // Integer lineHeight keeps cell heights on whole-pixel boundaries. 1.3
     // produces fractional cell heights at most font sizes (e.g. 14*1.3=18.2px),
@@ -211,7 +294,11 @@ async function createPane(container, cwd) {
     cursorStyle: 'bar',
     scrollback: 10000,
     allowProposedApi: true,
-    macOptionIsMeta: true,
+    // Must stay false: on non-US layouts Option types real characters
+    // (German: Option+L is @, Option+5 is [, Option+7 is |). With true,
+    // xterm swallows them as Meta shortcuts. Option+arrow word jumps still
+    // work either way.
+    macOptionIsMeta: false,
     // Option+Click walks the shell cursor to the clicked cell by synthesizing
     // arrow-key presses. This is xterm's default, pinned here so a future
     // library default change can't silently remove the behavior.
@@ -259,11 +346,33 @@ async function createPane(container, cwd) {
     throw err;
   }
 
+  // Right-to-left text. xterm puts every run of letters in its own box and
+  // lays the boxes out left to right, so an Arabic or Hebrew sentence comes
+  // out with its words in reverse order. Rows that contain such text get a
+  // class that turns the boxes back into plain inline text (see styles.css),
+  // which lets the browser order the whole row properly. Other rows keep
+  // xterm's exact grid.
+  term.onRender(({ start, end }) => {
+    const rowsEl = term.element && term.element.querySelector('.xterm-rows');
+    if (!rowsEl) return;
+    const rows = rowsEl.children;
+    for (let y = start; y <= end && y < rows.length; y++) {
+      rows[y].classList.toggle('has-rtl', RTL_TEXT.test(rows[y].textContent));
+    }
+  });
+
   term.onData((data) => window.terminalAPI.sendInput(ptyId, data));
   term.onResize(({ cols, rows }) => window.terminalAPI.resize(ptyId, cols, rows));
 
   // Clean up copied text: trim trailing whitespace and rejoin soft-wrapped lines
   term.attachCustomKeyEventHandler((e) => {
+    // xterm has its own ⌘A that selects the whole buffer. Skip it so the
+    // menu's Select All (line first, everything second) is the only one
+    // that acts; otherwise the two race and the whole buffer can win.
+    if (e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && e.key === 'a') {
+      return false;
+    }
+
     if ((e.metaKey || e.ctrlKey) && e.key === 'c' && term.hasSelection()) {
       e.preventDefault();
       const raw = term.getSelection();
@@ -307,6 +416,7 @@ async function createPane(container, cwd) {
   term.textarea.addEventListener('focus', () => {
     document.querySelectorAll('.split-pane.focused').forEach((el) => el.classList.remove('focused'));
     paneEl.classList.add('focused');
+    if (pane.session) syncSessionFromLeadPane(pane.session);
   });
 
   const pane = {
@@ -318,6 +428,14 @@ async function createPane(container, cwd) {
     // the dot pulsing forever.
     recentChunks: [],
     bell: false,
+    // Folder and foreground program, refreshed as output arrives. The
+    // folder starts as whatever the pane was opened in.
+    cwd: cwd || null,
+    proc: null,
+    procSince: 0,
+    infoTimer: null,
+    infoDirty: false,
+    lastInfoAt: 0,
   };
   paneByPtyId.set(ptyId, pane);
 
@@ -329,6 +447,7 @@ async function createPane(container, cwd) {
     if (pane.session && pane.session.id !== activeId) {
       pane.bell = true;
       refreshDots();
+      markAttention(pane.session, 'Rang the bell');
     }
   });
 
@@ -412,6 +531,11 @@ async function createSession(cwd) {
     title: `Terminal ${sessionCounter}`,
     customTitle: false,
     createdAt: new Date(),
+    cwd: cwd || null,   // folder of the pane that last reported
+    proc: null,         // program running there, null when it's just the shell
+    attention: false,   // finished or rang while the user wasn't looking
+    runStart: 0,
+    lastActive: 0,
   };
   pane.session = session;
 
@@ -435,6 +559,7 @@ function removeSession(id) {
   });
   session.wrapperEl.remove();
   sessions.splice(idx, 1);
+  updateBadge();
 
   if (sessions.length === 0) {
     activeId = null;
@@ -463,6 +588,10 @@ function activateSession(id) {
 
   // Looking at a session clears any pending bell on its panes.
   session.panes.forEach((p) => { p.bell = false; });
+  if (session.attention) {
+    session.attention = false;
+    updateBadge();
+  }
 
   session.wrapperEl.classList.add('active');
 
@@ -482,16 +611,43 @@ function activateSession(id) {
 // Sidebar rendering — Claude chat list style
 // ──────────────────────────────────────
 
+// Tab being dragged to a new place in the list, if any. While it is set the
+// list is not rebuilt: replacing the dragged element mid-drag cancels the drag.
+let dragId = null;
+let renderPending = false;
+
+function clearDropMarks() {
+  terminalListEl.querySelectorAll('.drop-before, .drop-after').forEach((n) => {
+    n.classList.remove('drop-before', 'drop-after');
+  });
+}
+
+// First line of a tab: the folder, or the name the user gave it.
+function sessionTitle(session) {
+  return session.title;
+}
+
+// Second line: what is running and where, so two tabs with the same folder
+// name can be told apart. Falls back to the start time until that is known.
+function sessionSubtitle(session) {
+  return tabSubtitle({
+    cwd: session.cwd,
+    proc: session.proc,
+    home: homeDir,
+    paneCount: session.panes.length,
+  }) || session.createdAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
 function renderSidebar() {
+  if (dragId) { renderPending = true; return; }
+  renderPending = false;
   terminalListEl.innerHTML = '';
+  scheduleSave();
 
   sessions.forEach((session) => {
-    const paneLabel = session.panes.length > 1 ? ` \u00b7 ${session.panes.length} panes` : '';
-    const timeStr = session.createdAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
     const iconEl = el('div', { class: 'item-icon', html: ICONS.prompt });
-    const titleEl = el('div', { class: 'item-title' }, session.title);
-    const subtitleEl = el('div', { class: 'item-subtitle' }, `${timeStr}${paneLabel}`);
+    const titleEl = el('div', { class: 'item-title' }, sessionTitle(session));
+    const subtitleEl = el('div', { class: 'item-subtitle' }, sessionSubtitle(session));
     const infoEl = el('div', { class: 'item-info' }, [titleEl, subtitleEl]);
     const dotEl = el('span', { class: 'item-dot' });
     const closeBtn = el('button', { class: 'item-close', 'data-action': 'close' }, '\u00d7');
@@ -519,6 +675,40 @@ function renderSidebar() {
       if (e.target.closest('[data-action="close"]')) return;
       if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
       startRename(session, titleEl);
+    });
+
+    // Drag a tab up or down to reorder. The line shows where it will land.
+    itemEl.draggable = true;
+    itemEl.addEventListener('dragstart', (e) => {
+      dragId = session.id;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', sessionTitle(session));
+      itemEl.classList.add('dragging');
+    });
+    itemEl.addEventListener('dragend', () => {
+      dragId = null;
+      clearDropMarks();
+      itemEl.classList.remove('dragging');
+      if (renderPending) renderSidebar();
+    });
+    itemEl.addEventListener('dragover', (e) => {
+      if (!dragId || dragId === session.id) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      const rect = itemEl.getBoundingClientRect();
+      const after = e.clientY > rect.top + rect.height / 2;
+      clearDropMarks();
+      itemEl.classList.add(after ? 'drop-after' : 'drop-before');
+    });
+    itemEl.addEventListener('drop', (e) => {
+      if (!dragId || dragId === session.id) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const after = itemEl.classList.contains('drop-after');
+      const moved = dragId;
+      dragId = null;
+      sessions = moveItem(sessions, moved, session.id, after);
+      renderSidebar();
     });
 
     terminalListEl.appendChild(itemEl);
@@ -559,6 +749,7 @@ function paneState(pane) {
 }
 
 function sessionState(session) {
+  if (session.attention) return 'bell';
   let best = 'idle';
   for (const pane of session.panes) {
     let s = paneState(pane);
@@ -572,7 +763,42 @@ function sessionState(session) {
   return best;
 }
 
+// A tab counts as "finished" when it streamed output for at least this
+// long and then went quiet. Short bursts (a prompt redraw, `ls`) don't.
+const MIN_RUN_MS = 5000;
+// A program that took over the terminal for at least this long and then
+// handed it back to the shell also counts, even if it printed nothing.
+const MIN_PROC_MS = 10000;
+
+function updateBadge() {
+  window.terminalAPI.setBadge(sessions.filter((s) => s.attention).length);
+}
+
+// Flag a tab the user isn't looking at: blue dot, Dock badge, notification.
+// One flag per tab until it is looked at, so a chatty tab can't spam.
+function markAttention(session, reason) {
+  if (restoring || session.attention) return;
+  if (session.id === activeId && document.hasFocus()) return;
+  session.attention = true;
+  updateBadge();
+  window.terminalAPI.notifyTab({ id: session.id, title: sessionTitle(session), body: reason });
+}
+
+function trackActivity(session, now) {
+  const streaming = session.panes.some((p) => recentBytes(p) >= RUNNING_BYTE_THRESHOLD);
+  if (streaming) {
+    if (!session.runStart) session.runStart = now;
+    session.lastActive = now;
+  } else if (session.runStart) {
+    const ranFor = session.lastActive - session.runStart;
+    session.runStart = 0;
+    if (ranFor >= MIN_RUN_MS) markAttention(session, 'Finished, or waiting for you');
+  }
+}
+
 function refreshDots() {
+  const now = Date.now();
+  for (const session of sessions) trackActivity(session, now);
   for (const session of sessions) {
     const dot = terminalListEl.querySelector(`.terminal-item[data-id="${session.id}"] .item-dot`);
     if (!dot) continue;
@@ -591,6 +817,10 @@ function startRename(session, titleEl) {
   input.type = 'text';
   input.className = 'rename-input';
   input.value = session.title;
+
+  // A draggable parent swallows text selection inside the input.
+  const itemEl = titleEl.closest('.terminal-item');
+  if (itemEl) itemEl.draggable = false;
 
   titleEl.replaceWith(input);
   input.focus();
@@ -626,9 +856,15 @@ function updateUI() {
   statsText.textContent = `${sessions.length} terminal${sessions.length !== 1 ? 's' : ''}`;
 
   const session = sessions.find((s) => s.id === activeId);
-  mainTitle.textContent = session ? session.title : '';
+  mainTitle.textContent = session ? sessionTitle(session) : '';
+  scheduleSave();
 
   emptyState.classList.toggle('hidden', sessions.length > 0);
+  if (sessions.length === 0) {
+    const hour = new Date().getHours();
+    const part = hour < 5 ? 'evening' : hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening';
+    document.getElementById('empty-greeting').textContent = `Good ${part}`;
+  }
   containerEl.style.display = sessions.length > 0 ? '' : 'none';
 }
 
@@ -636,7 +872,7 @@ function updateUI() {
 // Split panes
 // ──────────────────────────────────────
 
-async function splitPane(direction) {
+async function splitPane(direction, cwd) {
   const session = sessions.find((s) => s.id === activeId);
   if (!session) return;
 
@@ -655,7 +891,7 @@ async function splitPane(direction) {
     splitContainer.appendChild(divider);
     splitContainer.insertBefore(session.panes[0].el, divider);
 
-    const newPane = await createPane(splitContainer);
+    const newPane = await createPane(splitContainer, cwd);
     session.panes.push(newPane);
     newPane.session = session;
     newPane.term.focus();
@@ -664,7 +900,7 @@ async function splitPane(direction) {
     const divider = createDivider(splitContainer, session.splitDirection);
     splitContainer.appendChild(divider);
 
-    const newPane = await createPane(splitContainer);
+    const newPane = await createPane(splitContainer, cwd);
     session.panes.push(newPane);
     newPane.session = session;
     newPane.term.focus();
@@ -791,31 +1027,173 @@ function closeFocusedPane() {
 // ──────────────────────────────────────
 
 let isRenaming = false;
-let titleUpdateTimer = null;
 
 window.terminalAPI.onData(({ id, data }) => {
   const pane = paneByPtyId.get(id);
   if (!pane) return;
   pane.recentChunks.push({ t: Date.now(), n: data.length || 0 });
   pane.term.write(data);
+  schedulePaneInfo(pane);
+});
+
+// Output is the only sign that a pane's folder or program may have changed
+// (a `cd`, a command starting or ending), so each burst schedules one
+// lookup. Lookups spawn lsof, so they are spaced at least INFO_GAP_MS apart
+// per pane, and a burst that arrives during a lookup triggers one more
+// afterwards so the final state is never missed.
+const INFO_DELAY_MS = 500;
+const INFO_GAP_MS = 2000;
+
+function schedulePaneInfo(pane) {
+  pane.infoDirty = true;
+  if (pane.infoTimer) return;
+  const wait = Math.max(INFO_DELAY_MS, INFO_GAP_MS - (Date.now() - pane.lastInfoAt));
+  pane.infoTimer = setTimeout(async () => {
+    pane.infoDirty = false;
+    pane.lastInfoAt = Date.now();
+    let info = null;
+    try { info = await window.terminalAPI.getPaneInfo(pane.ptyId); } catch { /* pane gone */ }
+    pane.infoTimer = null;
+    if (!paneByPtyId.has(pane.ptyId)) return;
+    if (info) applyPaneInfo(pane, info);
+    if (pane.infoDirty) schedulePaneInfo(pane);
+  }, wait);
+}
+
+function applyPaneInfo(pane, { cwd, proc }) {
   const session = pane.session;
-  if (session && !session.customTitle && !isRenaming) {
-    clearTimeout(titleUpdateTimer);
-    titleUpdateTimer = setTimeout(() => {
-      Promise.all([
-        window.terminalAPI.getCwd(id),
-        window.terminalAPI.getHomedir(),
-      ]).then(([cwd, home]) => {
-        if (cwd && !session.customTitle && !isRenaming) {
-          const name = cwd === home ? '~' : (cwd.split('/').pop() || 'Terminal');
-          if (session.title !== name && name !== '') {
-            session.title = name;
-            renderSidebar();
-            updateUI();
-          }
+  if (!session) return;
+  const now = Date.now();
+
+  // A program that held the terminal for a while just gave it back.
+  const wasBusy = pane.proc && !isShellProcess(pane.proc);
+  const nowIdle = isShellProcess(proc);
+  if (wasBusy && nowIdle && pane.procSince && now - pane.procSince >= MIN_PROC_MS) {
+    markAttention(session, `${pane.proc} finished`);
+  }
+  if (proc !== pane.proc) pane.procSince = nowIdle ? 0 : now;
+  pane.proc = proc || null;
+  if (cwd) pane.cwd = cwd;
+
+  syncSessionFromLeadPane(session);
+}
+
+// A tab is named after one pane: the one with focus, or the first one when
+// none has it. Otherwise a split tab would be renamed by whichever pane
+// happened to print last.
+function leadPane(session) {
+  return session.panes.find((p) => p.el.classList.contains('focused')) || session.panes[0];
+}
+
+function syncSessionFromLeadPane(session) {
+  const pane = leadPane(session);
+  if (!pane) return;
+  const nextProc = isShellProcess(pane.proc) ? null : pane.proc;
+  const nextTitle = session.customTitle ? session.title : (folderName(pane.cwd, homeDir) || session.title);
+  const changed = session.cwd !== pane.cwd || session.proc !== nextProc || session.title !== nextTitle;
+  session.cwd = pane.cwd;
+  session.proc = nextProc;
+  session.title = nextTitle;
+  if (changed && !isRenaming) {
+    renderSidebar();
+    updateUI();
+  }
+}
+
+// ──────────────────────────────────────
+// Remember open tabs
+// ──────────────────────────────────────
+
+let saveTimer = null;
+
+function saveTabsNow() {
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  if (restoring) return;
+  window.terminalAPI.saveTabs({
+    active: Math.max(0, sessions.findIndex((s) => s.id === activeId)),
+    tabs: sessions.map((s) => ({
+      title: s.customTitle ? s.title : null,
+      split: s.splitDirection || 'horizontal',
+      panes: s.panes.map((p) => ({ cwd: p.cwd || null })),
+    })),
+  });
+}
+
+function scheduleSave() {
+  if (restoring) return;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveTabsNow, 800);
+}
+
+// A change made in the last moment before quitting would otherwise be lost
+// to the debounce.
+window.addEventListener('beforeunload', () => { if (saveTimer) saveTabsNow(); });
+
+// Rebuild the tabs from the last run: same folders, names, order and splits.
+// Running programs can't come back; each pane starts a fresh shell.
+async function restoreTabs() {
+  let saved = null;
+  try { saved = await window.terminalAPI.getSavedTabs(); } catch { /* start fresh */ }
+  const tabs = saved && Array.isArray(saved.tabs) ? saved.tabs : [];
+  if (tabs.length === 0) {
+    await createSession();
+    return;
+  }
+
+  restoring = true;
+  const created = new Array(tabs.length).fill(null);
+  try {
+    // createSession() puts each new tab on top, so build bottom-up.
+    for (let i = tabs.length - 1; i >= 0; i--) {
+      const tab = tabs[i];
+      try {
+        const session = await createSession(tab.panes[0].cwd || undefined);
+        if (tab.title) {
+          session.title = tab.title;
+          session.customTitle = true;
         }
-      });
-    }, 500);
+        for (const p of tab.panes.slice(1)) {
+          await splitPane(tab.split, p.cwd || undefined);
+        }
+        // Splitting leaves focus on the newest pane; hand it back to the
+        // first so the tab is named after it.
+        if (session.panes.length > 1) session.panes[0].term.focus();
+        created[i] = session;
+      } catch (err) {
+        console.error('Could not restore a tab:', err);
+      }
+    }
+  } finally {
+    restoring = false;
+  }
+
+  if (sessions.length === 0) {
+    await createSession();
+    return;
+  }
+  const target = created[saved.active] || sessions[0];
+  activateSession(target.id);
+  renderSidebar();
+  updateUI();
+}
+
+window.terminalAPI.onGotoTab((n) => {
+  const session = sessions[n - 1];
+  if (session) activateSession(session.id);
+});
+
+window.terminalAPI.onActivateSession((id) => {
+  if (sessions.some((s) => s.id === id)) activateSession(id);
+});
+
+// Coming back to the window counts as looking at the tab that's open.
+window.terminalAPI.onWindowFocus(() => {
+  const session = sessions.find((s) => s.id === activeId);
+  if (session && session.attention) {
+    session.attention = false;
+    updateBadge();
+    refreshDots();
   }
 });
 
@@ -925,12 +1303,131 @@ document.getElementById('search-close').addEventListener('click', toggleSearch);
 // ──────────────────────────────────────
 
 function setFontSize(size) {
-  fontSize = Math.max(8, Math.min(32, size));
+  fontSize = Math.max(TERM_SIZE.min, Math.min(TERM_SIZE.max, size));
+  try { localStorage.setItem('font.terminal.size', fontSize); } catch { /* not persisted */ }
   sessions.forEach((s) => s.panes.forEach((p) => {
     p.term.options.fontSize = fontSize;
     safeFit(p);
   }));
+  updateFontSizeControls();
 }
+
+function setUiScale(percent) {
+  uiScale = Math.max(UI_SCALE.min, Math.min(UI_SCALE.max, percent));
+  try { localStorage.setItem('font.ui.scale', uiScale); } catch { /* not persisted */ }
+  document.documentElement.style.setProperty('--ui-scale', uiScale / 100);
+  updateFontSizeControls();
+}
+
+function updateFontSizeControls() {
+  document.getElementById('font-size-terminal-value').textContent = `${fontSize} px`;
+  document.getElementById('font-size-terminal-down').disabled = fontSize <= TERM_SIZE.min;
+  document.getElementById('font-size-terminal-up').disabled = fontSize >= TERM_SIZE.max;
+  document.getElementById('font-size-ui-value').textContent = `${uiScale}%`;
+  document.getElementById('font-size-ui-down').disabled = uiScale <= UI_SCALE.min;
+  document.getElementById('font-size-ui-up').disabled = uiScale >= UI_SCALE.max;
+}
+
+document.getElementById('font-size-terminal-down').addEventListener('click', () => setFontSize(fontSize - 1));
+document.getElementById('font-size-terminal-up').addEventListener('click', () => setFontSize(fontSize + 1));
+document.getElementById('font-size-ui-down').addEventListener('click', () => setUiScale(uiScale - UI_SCALE.step));
+document.getElementById('font-size-ui-up').addEventListener('click', () => setUiScale(uiScale + UI_SCALE.step));
+
+setUiScale(uiScale);
+
+// ──────────────────────────────────────
+// Fonts — one choice for the terminal, one for the interface. Saved in
+// localStorage; only fonts installed on this Mac are offered.
+// ──────────────────────────────────────
+
+const fontsOverlay = document.getElementById('fonts-overlay');
+
+function saveFontChoice(kind, id) {
+  fontChoice[kind] = id;
+  try { localStorage.setItem(`font.${kind}`, id); } catch { /* not persisted */ }
+}
+
+function applyUiFont() {
+  document.documentElement.style.setProperty('--ui-font', fontStack('ui'));
+}
+
+function applyTerminalFont() {
+  const family = fontStack('terminal');
+  sessions.forEach((s) => s.panes.forEach((p) => {
+    p.term.options.fontFamily = family;
+    safeFit(p);
+  }));
+}
+
+// A named font is installed if text set in it measures differently from
+// the same text in both generic fallbacks.
+function isFontInstalled(name) {
+  if (!name) return true; // system aliases always resolve
+  const ctx = document.createElement('canvas').getContext('2d');
+  const sample = 'mmmmmmmmmmlliWW@#01';
+  const width = (family) => { ctx.font = `72px ${family}`; return ctx.measureText(sample).width; };
+  return width(`"${name}", monospace`) !== width('monospace')
+    || width(`"${name}", serif`) !== width('serif');
+}
+
+function renderFontList(kind, listEl) {
+  listEl.innerHTML = '';
+  for (const font of FONT_CHOICES[kind]) {
+    if (!isFontInstalled(font.probe)) continue;
+    const selected = fontChoice[kind] === font.id;
+    listEl.appendChild(el('button', {
+      class: 'font-option' + (selected ? ' selected' : ''),
+      style: `font-family: ${font.stack}`,
+      onClick: () => {
+        saveFontChoice(kind, font.id);
+        if (kind === 'ui') applyUiFont(); else applyTerminalFont();
+        renderFontLists();
+      },
+    }, [
+      el('span', { text: font.label }),
+      el('span', { class: 'font-option-mark' }),
+    ]));
+  }
+}
+
+function renderFontLists() {
+  renderFontList('terminal', document.getElementById('fonts-terminal-list'));
+  renderFontList('ui', document.getElementById('fonts-ui-list'));
+}
+
+function toggleFonts() {
+  const show = fontsOverlay.classList.contains('hidden');
+  fontsOverlay.classList.toggle('hidden', !show);
+  if (show) {
+    renderFontLists();
+  } else {
+    const session = sessions.find((s) => s.id === activeId);
+    const pane = session?.panes.find((p) => p.el.classList.contains('focused')) || session?.panes[0];
+    pane?.term.focus();
+  }
+}
+
+document.getElementById('fonts-btn').addEventListener('click', toggleFonts);
+fontsOverlay.addEventListener('click', (e) => {
+  if (e.target === fontsOverlay) toggleFonts();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !fontsOverlay.classList.contains('hidden')) {
+    e.preventDefault();
+    toggleFonts();
+  }
+});
+
+applyUiFont();
+
+// The terminal measures each letter once and remembers the width. If it
+// measured Arabic before the bundled font finished loading, those widths
+// are wrong, so load the font up front and re-apply the terminal font
+// (which clears the remembered widths) once it is in.
+Promise.all([
+  document.fonts.load(`14px ${ARABIC_MONO}`, '\u0628'),
+  document.fonts.load(`bold 14px ${ARABIC_MONO}`, '\u0628'),
+]).then(applyTerminalFont).catch(() => {});
 
 // ──────────────────────────────────────
 // Sidebar toggle
@@ -1004,10 +1501,12 @@ window.terminalAPI.onPrevTab(() => {
   }
 });
 
-// ⌘A: first press selects the line being edited (prompt row plus its
-// soft-wrapped continuations); pressing again — or being on the alternate
-// screen, where there's no input line — selects the whole buffer. Regular
-// inputs (search, rename, snippet form) keep their native select-all.
+// ⌘A: first press selects the text being typed, pressing again selects the
+// whole buffer. At a shell prompt that text is the prompt row plus its
+// soft-wrapped continuations. In a full-screen app (alternate screen, e.g.
+// Claude Code with "tui": "fullscreen") it is the block of text rows around
+// the cursor, inside whatever frame the app draws. Regular inputs (search,
+// rename, snippet form) keep their native select-all.
 window.terminalAPI.onSelectAll(() => {
   const ae = document.activeElement;
   if (
@@ -1025,15 +1524,10 @@ window.terminalAPI.onSelectAll(() => {
 
   const term = pane.term;
   const buffer = term.buffer.active;
-  if (buffer.type !== 'normal') {
-    term.selectAll();
-    return;
-  }
-
-  const { runStart, runEnd } = lineRunBounds(
-    bufferLineAdapter(buffer),
-    buffer.baseY + buffer.cursorY
-  );
+  const cursorRow = buffer.baseY + buffer.cursorY;
+  const { runStart, runEnd } = buffer.type === 'normal'
+    ? lineRunBounds(bufferLineAdapter(buffer), cursorRow)
+    : blockRunBounds(bufferLineAdapter(buffer), cursorRow, term.cols);
 
   // selectLines() produces exactly [0, runStart] → [cols, runEnd]; if that
   // selection is already active, this press is the second one — expand.
@@ -1052,6 +1546,10 @@ window.terminalAPI.onSelectAll(() => {
 
 window.terminalAPI.onToggleSearch(toggleSearch);
 
+window.terminalAPI.onFullscreenChange((isFullscreen) => {
+  document.body.classList.toggle('fullscreen', isFullscreen);
+});
+
 window.terminalAPI.onClearTerminal(() => {
   const session = sessions.find((s) => s.id === activeId);
   if (!session) return;
@@ -1061,7 +1559,7 @@ window.terminalAPI.onClearTerminal(() => {
 
 window.terminalAPI.onZoomIn(() => setFontSize(fontSize + 1));
 window.terminalAPI.onZoomOut(() => setFontSize(fontSize - 1));
-window.terminalAPI.onZoomReset(() => setFontSize(14));
+window.terminalAPI.onZoomReset(() => setFontSize(TERM_SIZE.fallback));
 
 // ──────────────────────────────────────
 // New terminal picker (Blank + snippets)
@@ -1170,14 +1668,15 @@ async function showNewTerminalPicker(cwd) {
       el('div', { class: 'snippet-item-icon', html: ICONS.prompt }),
       el('div', { class: 'snippet-item-info' }, [
         el('div', { class: 'snippet-item-name' }, s.name),
-        el('div', { class: 'snippet-item-command' }, s.command),
+        el('div', { class: 'snippet-item-command' }, snippetSummary(s)),
       ]),
     ]);
     row.addEventListener('click', async () => {
       hideNewTerminalPicker();
-      const session = await createSession(cwd);
+      // A folder picked for this tab (⌘M) wins over the snippet's own.
+      const session = await createSession(cwd || s.cwd || undefined);
       const pane = session.panes[0];
-      sendWhenShellReady(pane.ptyId, s.command);
+      if (s.command) sendWhenShellReady(pane.ptyId, s.command);
     });
     newTerminalPickerList.appendChild(row);
   });
@@ -1240,6 +1739,7 @@ const snippetsEmpty = document.getElementById('snippets-empty');
 const snippetForm = document.getElementById('snippet-form');
 const snippetNameInput = document.getElementById('snippet-name');
 const snippetCommandInput = document.getElementById('snippet-command');
+const snippetCwdInput = document.getElementById('snippet-cwd');
 
 let snippetsVisible = false;
 
@@ -1272,7 +1772,7 @@ async function renderSnippets() {
       el('div', { class: 'snippet-item-icon', html: ICONS.prompt }),
       el('div', { class: 'snippet-item-info' }, [
         el('div', { class: 'snippet-item-name' }, s.name),
-        el('div', { class: 'snippet-item-command' }, s.command),
+        el('div', { class: 'snippet-item-command' }, snippetSummary(s)),
       ]),
       deleteBtn,
     ]);
@@ -1284,6 +1784,7 @@ async function renderSnippets() {
 
     deleteBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
+      if (!(await confirmClose(`Delete the snippet "${s.name}"?`, 'Delete'))) return;
       await window.terminalAPI.deleteSnippet(s.id);
       await renderSnippets();
     });
@@ -1292,11 +1793,18 @@ async function renderSnippets() {
   });
 }
 
+// Second line of a snippet row: the command, and the folder if it has one.
+function snippetSummary(s) {
+  const where = s.cwd ? shortPath(s.cwd, homeDir) : '';
+  if (s.command && where) return `${s.command}  \u00b7  in ${where}`;
+  return s.command || `Open ${where}`;
+}
+
 function pasteSnippet(command) {
   const session = sessions.find((s) => s.id === activeId);
   if (!session) return;
   const pane = session.panes.find((p) => p.el.classList.contains('focused')) || session.panes[0];
-  if (pane) {
+  if (pane && command) {
     window.terminalAPI.sendInput(pane.ptyId, command);
   }
   toggleSnippets();
@@ -1307,6 +1815,7 @@ document.getElementById('snippets-add-btn').addEventListener('click', () => {
   snippetForm.classList.remove('hidden');
   snippetNameInput.value = '';
   snippetCommandInput.value = '';
+  snippetCwdInput.value = '';
   snippetNameInput.focus();
 });
 
@@ -1317,8 +1826,11 @@ document.getElementById('snippet-cancel').addEventListener('click', () => {
 document.getElementById('snippet-save').addEventListener('click', async () => {
   const name = snippetNameInput.value.trim();
   const command = snippetCommandInput.value.trim();
-  if (!name || !command) return;
-  await window.terminalAPI.saveSnippet({ id: genSnippetId(), name, command });
+  let cwd = snippetCwdInput.value.trim();
+  if (cwd === '~' || cwd.startsWith('~/')) cwd = (homeDir || '~') + cwd.slice(1);
+  // A snippet needs something to do: a command, a folder, or both.
+  if (!name || (!command && !cwd)) return;
+  await window.terminalAPI.saveSnippet({ id: genSnippetId(), name, command, cwd: cwd || null });
   snippetForm.classList.add('hidden');
   await renderSnippets();
 });
@@ -1326,6 +1838,16 @@ document.getElementById('snippet-save').addEventListener('click', async () => {
 snippetCommandInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') document.getElementById('snippet-save').click();
   if (e.key === 'Escape') toggleSnippets();
+});
+
+snippetCwdInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') document.getElementById('snippet-save').click();
+  if (e.key === 'Escape') toggleSnippets();
+});
+
+document.getElementById('snippet-cwd-browse').addEventListener('click', async () => {
+  const folder = await window.terminalAPI.pickFolder();
+  if (folder) snippetCwdInput.value = folder;
 });
 
 snippetNameInput.addEventListener('keydown', (e) => {
@@ -1344,7 +1866,7 @@ window.terminalAPI.onToggleSnippets(toggleSnippets);
 // Close confirmation dialog
 // ──────────────────────────────────────
 
-function confirmClose(message = 'Close this terminal?') {
+function confirmClose(message = 'Close this terminal?', okLabel = 'Close') {
   return new Promise((resolve) => {
     const overlay = document.getElementById('confirm-overlay');
     const msgEl = document.getElementById('confirm-message');
@@ -1352,6 +1874,7 @@ function confirmClose(message = 'Close this terminal?') {
     const cancelBtn = document.getElementById('confirm-cancel');
 
     msgEl.textContent = message;
+    okBtn.textContent = okLabel;
     overlay.classList.remove('hidden');
     okBtn.focus();
 
@@ -1407,7 +1930,7 @@ document.addEventListener('drop', (e) => e.preventDefault());
 // Boot — start with one terminal
 // ──────────────────────────────────────
 
-createSession().catch((err) => {
+restoreTabs().catch((err) => {
   // Spawn failed at startup. Leave the empty state visible so the user
   // can click "Open a Terminal" to retry.
   console.error('Initial terminal failed to spawn:', err);

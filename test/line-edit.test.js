@@ -436,3 +436,76 @@ test('click move counts characters, not cells, over wide characters', () => {
   });
   assert.equal(seq, RIGHT.repeat(2));
 });
+
+// ── blockRunBounds: the typed block inside a full-screen app's frame ──
+
+test('blockRunBounds selects the text rows between two rule rows', () => {
+  const { blockRunBounds } = require('../lib/line-edit');
+  const rows = [
+    'some earlier output',
+    '',
+    '────────────────────',
+    '> first typed line',
+    '  second typed line',
+    '────────────────────',
+    '  ? for shortcuts',
+  ];
+  const getLine = (y) => (y in rows ? { isWrapped: false, text: () => rows[y] } : null);
+  assert.deepEqual(blockRunBounds(getLine, 3, 20), { runStart: 3, runEnd: 4 });
+  assert.deepEqual(blockRunBounds(getLine, 4, 20), { runStart: 3, runEnd: 4 });
+});
+
+test('blockRunBounds stops at blank rows and at the buffer edges', () => {
+  const { blockRunBounds } = require('../lib/line-edit');
+  const rows = ['top row', 'next row', '   ', 'lone row'];
+  const getLine = (y) => (y in rows ? { isWrapped: false, text: () => rows[y] } : null);
+  assert.deepEqual(blockRunBounds(getLine, 0, 20), { runStart: 0, runEnd: 1 });
+  assert.deepEqual(blockRunBounds(getLine, 3, 20), { runStart: 3, runEnd: 3 });
+});
+
+test('blockRunBounds returns just the cursor row when it sits on a border or blank row', () => {
+  const { blockRunBounds } = require('../lib/line-edit');
+  const rows = ['text', '│          │', '', 'text'];
+  const getLine = (y) => (y in rows ? { isWrapped: false, text: () => rows[y] } : null);
+  assert.deepEqual(blockRunBounds(getLine, 1, 20), { runStart: 1, runEnd: 1 });
+  assert.deepEqual(blockRunBounds(getLine, 2, 20), { runStart: 2, runEnd: 2 });
+});
+
+// ── computeBlockDeleteSequence: Select All then Backspace in a full-screen app ──
+
+function blockFixture() {
+  const rows = [
+    'earlier output',
+    '────────────────────',
+    '> hello',
+    '  wor',
+    '────────────────────',
+  ];
+  return (y) => (y in rows ? { isWrapped: false, text: () => rows[y] } : null);
+}
+
+test('computeBlockDeleteSequence empties the input when the whole block is selected', () => {
+  const { computeBlockDeleteSequence } = require('../lib/line-edit');
+  const seq = computeBlockDeleteSequence({
+    cursorAbsY: 3, selStart: { x: 0, y: 2 }, selEnd: { x: 20, y: 3 },
+    cols: 20, applicationCursor: false, getLine: blockFixture(),
+  });
+  // 7 + 5 visible chars, plus one per row: an upper bound on what was typed.
+  assert.equal(seq, RIGHT.repeat(14) + BS.repeat(14));
+});
+
+test('computeBlockDeleteSequence refuses a partial selection', () => {
+  const { computeBlockDeleteSequence } = require('../lib/line-edit');
+  const args = { cursorAbsY: 3, cols: 20, applicationCursor: false, getLine: blockFixture() };
+  assert.equal(computeBlockDeleteSequence({ ...args, selStart: { x: 2, y: 2 }, selEnd: { x: 20, y: 3 } }), null);
+  assert.equal(computeBlockDeleteSequence({ ...args, selStart: { x: 0, y: 2 }, selEnd: { x: 20, y: 2 } }), null);
+  assert.equal(computeBlockDeleteSequence({ ...args, selStart: { x: 0, y: 0 }, selEnd: { x: 20, y: 4 } }), null);
+});
+
+test('computeBlockDeleteSequence refuses when the cursor sits on a border row', () => {
+  const { computeBlockDeleteSequence } = require('../lib/line-edit');
+  assert.equal(computeBlockDeleteSequence({
+    cursorAbsY: 1, selStart: { x: 0, y: 1 }, selEnd: { x: 20, y: 1 },
+    cols: 20, applicationCursor: false, getLine: blockFixture(),
+  }), null);
+});

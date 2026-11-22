@@ -1,16 +1,37 @@
-const { app, BrowserWindow, ipcMain, Menu, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, dialog, Notification, screen } = require('electron');
 const path = require('path');
 const os = require('os');
+const fs = require('fs');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
 const pty = require('node-pty');
 const Store = require('electron-store');
 const { getShellConfig } = require('./lib/shell');
 const { createTerminalStore } = require('./lib/terminal-store');
+const { sanitizeSavedTabs, looksLikeVersion, cleanProcessName } = require('./lib/tabs');
 
 const execFileAsync = promisify(execFile);
 
 const store = new Store({ name: 'snippets', defaults: { snippets: [] } });
+
+// Things the app remembers between launches: window placement, open tabs,
+// and whether to notify when a background tab finishes.
+const appState = new Store({
+  name: 'state',
+  defaults: { window: null, tabs: null, notify: true },
+});
+
+// Saved bounds are only reused if they still land on a connected display;
+// otherwise a window saved on an unplugged monitor would open off-screen.
+function savedWindowBounds() {
+  const b = appState.get('window');
+  if (!b || ![b.x, b.y, b.width, b.height].every(Number.isFinite)) return null;
+  const area = screen.getDisplayMatching(b).workArea;
+  const overlapW = Math.min(b.x + b.width, area.x + area.width) - Math.max(b.x, area.x);
+  const overlapH = Math.min(b.y + b.height, area.y + area.height) - Math.max(b.y, area.y);
+  if (overlapW < 200 || overlapH < 100) return null;
+  return { x: b.x, y: b.y, width: Math.max(600, b.width), height: Math.max(400, b.height) };
+}
 
 let mainWindow;
 const terminals = createTerminalStore();
@@ -44,9 +65,17 @@ function queueTerminalData(id, data) {
 }
 
 function createWindow() {
+  const savedBounds = savedWindowBounds();
+  const wasFullscreen = !!(appState.get('window') || {}).fullscreen;
+
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
+    ...(savedBounds || {}),
+    // Only ever pass `fullscreen: true`. Electron treats an explicit
+    // `false` as "this window may never go full screen" and disables the
+    // green button and the menu item.
+    ...(wasFullscreen ? { fullscreen: true } : {}),
     minWidth: 600,
     minHeight: 400,
     titleBarStyle: 'hiddenInset',
@@ -64,6 +93,71 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+
+  const win = mainWindow;
+
+  // In full screen macOS hides the traffic lights, so the renderer stops
+  // reserving space for them.
+  const sendFullscreen = () => {
+    if (!win.isDestroyed()) win.webContents.send('fullscreen-changed', win.isFullScreen());
+  };
+  win.on('enter-full-screen', sendFullscreen);
+  win.on('leave-full-screen', sendFullscreen);
+  win.webContents.on('did-finish-load', sendFullscreen);
+
+  // Remember where the window is. getNormalBounds() is the windowed size
+  // even while full screen, so leaving full screen later restores it.
+  let boundsTimer = null;
+  const saveBounds = () => {
+    if (win.isDestroyed()) return;
+    appState.set('window', { ...win.getNormalBounds(), fullscreen: win.isFullScreen() });
+  };
+  const saveBoundsSoon = () => {
+    clearTimeout(boundsTimer);
+    boundsTimer = setTimeout(saveBounds, 500);
+  };
+  win.on('resize', saveBoundsSoon);
+  win.on('move', saveBoundsSoon);
+  win.on('enter-full-screen', saveBoundsSoon);
+  win.on('leave-full-screen', saveBoundsSoon);
+  win.on('focus', () => win.webContents.send('window-focus'));
+
+  // Closing the window kills every session in it, so always ask first.
+  // This covers the red button, Cmd+Q and the Quit menu item, since they
+  // all go through the window's close event.
+  let closeConfirmed = false;
+  let closePromptOpen = false;
+  win.on('close', (event) => {
+    clearTimeout(boundsTimer);
+    saveBounds();
+    if (closeConfirmed) return;
+    event.preventDefault();
+    if (closePromptOpen) return;
+    closePromptOpen = true;
+
+    const count = terminals.size();
+    const detail = count > 0
+      ? `This will end ${count} running session${count === 1 ? '' : 's'}.`
+      : 'All tabs will be closed.';
+
+    // Async on purpose: the sync dialog would block the main process and
+    // stall pty output while the prompt is up.
+    dialog.showMessageBox(win, {
+      type: 'warning',
+      message: 'Quit TerminalHub?',
+      detail,
+      buttons: ['Quit', 'Cancel'],
+      defaultId: 0,
+      cancelId: 1,
+    }).then(({ response }) => {
+      closePromptOpen = false;
+      if (response !== 0 || win.isDestroyed()) return;
+      closeConfirmed = true;
+      win.close();
+    }).catch(() => {
+      closePromptOpen = false;
+    });
+  });
 
   const template = [
     {
@@ -131,6 +225,14 @@ function createWindow() {
           accelerator: 'CmdOrCtrl+Shift+[',
           click: () => mainWindow.webContents.send('prev-tab'),
         },
+        // ⌘1 to ⌘9 jump straight to a tab. Hidden so they don't fill the
+        // menu; on macOS accelerators of hidden items still work.
+        ...Array.from({ length: 9 }, (_, i) => ({
+          label: `Go to Tab ${i + 1}`,
+          accelerator: `CmdOrCtrl+${i + 1}`,
+          visible: false,
+          click: () => mainWindow.webContents.send('goto-tab', i + 1),
+        })),
       ],
     },
     {
@@ -192,6 +294,13 @@ function createWindow() {
           click: () => mainWindow.webContents.send('zoom-reset'),
         },
         { type: 'separator' },
+        {
+          label: 'Notify When a Tab Finishes',
+          type: 'checkbox',
+          checked: appState.get('notify'),
+          click: (item) => appState.set('notify', item.checked),
+        },
+        { type: 'separator' },
         { role: 'togglefullscreen' },
         { role: 'toggleDevTools' },
       ],
@@ -247,13 +356,22 @@ ipcMain.handle('create-terminal', (event, { cols, rows, cwd }) => {
     )
   );
 
+  // A remembered folder (restored tab, snippet) may be gone by now. Spawning
+  // into a missing folder fails outright, so fall back to home.
+  let startDir = os.homedir();
+  if (typeof cwd === 'string' && cwd) {
+    try {
+      if (fs.statSync(cwd).isDirectory()) startDir = cwd;
+    } catch { /* missing or unreadable: keep home */ }
+  }
+
   let ptyProcess;
   try {
     ptyProcess = pty.spawn(shell, args, {
       name: 'xterm-256color',
       cols: cols || 80,
       rows: rows || 24,
-      cwd: cwd || os.homedir(),
+      cwd: startDir,
       env: {
         ...cleanEnv,
         TERM: 'xterm-256color',
@@ -345,6 +463,83 @@ ipcMain.handle('delete-snippet', (event, id) => {
   const snippets = store.get('snippets').filter((s) => s.id !== id);
   store.set('snippets', snippets);
   return snippets;
+});
+
+// ──────────────────────────────────────
+// Remembered tabs, notifications, Dock badge
+// ──────────────────────────────────────
+
+ipcMain.handle('get-saved-tabs', () => sanitizeSavedTabs(appState.get('tabs')));
+
+ipcMain.on('save-tabs', (event, snapshot) => {
+  appState.set('tabs', sanitizeSavedTabs(snapshot));
+});
+
+// Hold references so a notification isn't garbage-collected before the
+// user clicks it.
+const liveNotifications = new Set();
+
+ipcMain.on('notify-tab', (event, { id, title, body }) => {
+  if (!appState.get('notify') || !Notification.isSupported()) return;
+  const n = new Notification({
+    title: String(title || 'TerminalHub').slice(0, 120),
+    body: String(body || '').slice(0, 200),
+  });
+  liveNotifications.add(n);
+  const done = () => liveNotifications.delete(n);
+  n.on('click', () => {
+    done();
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+    mainWindow.webContents.send('activate-session', id);
+  });
+  n.on('close', done);
+  n.show();
+});
+
+ipcMain.on('set-badge', (event, count) => {
+  if (!app.dock) return;
+  const n = Number.isInteger(count) && count > 0 ? count : 0;
+  app.dock.setBadge(n ? String(n) : '');
+});
+
+// Folder and foreground program of a pty, for tab names. `proc` is the
+// name of whatever currently owns the terminal: the shell when idle, or
+// the program the user started.
+ipcMain.handle('get-pane-info', async (event, { id }) => {
+  const term = terminals.get(event.sender.id, id);
+  if (!term) return null;
+  let proc = null;
+  try { proc = term.process || null; } catch { /* pty already gone */ }
+  // A version-number name means the program runs through a link (see
+  // looksLikeVersion). Ask ps for the name it was started under: find the
+  // process that owns the terminal right now, then read its command.
+  if (looksLikeVersion(proc) && process.platform !== 'win32') {
+    try {
+      const fg = await execFileAsync('ps', ['-o', 'tpgid=', '-p', String(term.pid)], { encoding: 'utf8', timeout: 2000 });
+      const fgPid = parseInt(fg.stdout, 10);
+      if (fgPid > 0) {
+        const named = await execFileAsync('ps', ['-o', 'comm=', '-p', String(fgPid)], { encoding: 'utf8', timeout: 2000 });
+        const name = cleanProcessName(named.stdout);
+        if (name && !looksLikeVersion(name)) proc = name;
+      }
+    } catch { /* keep the kernel's name */ }
+  }
+  let cwd = null;
+  if (process.platform !== 'win32') {
+    try {
+      const { stdout } = await execFileAsync(
+        'lsof',
+        ['-a', '-d', 'cwd', '-p', String(term.pid), '-Fn'],
+        { encoding: 'utf8', timeout: 2000 }
+      );
+      const match = stdout.match(/\nn(.*)/);
+      cwd = match ? match[1] : null;
+    } catch { /* leave null: the renderer keeps its last known folder */ }
+  }
+  return { cwd, proc };
 });
 
 // Resolve a pty's working directory via lsof. Async so the main process

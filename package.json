@@ -17,6 +17,8 @@
     "package": "npm run build && electron-packager . TerminalHub --platform=darwin --arch=arm64 --out=dist --overwrite --icon=assets/icon.icns --app-bundle-id=com.terminalhub.app --prune=true --asar.unpackDir=node_modules/node-pty"
   },
   "dependencies": {
+    "@fontsource-variable/figtree": "^5.3.0",
+    "@fontsource/cascadia-mono": "^5.3.0",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/addon-search": "^0.15.0",
     "@xterm/addon-web-links": "^0.11.0",

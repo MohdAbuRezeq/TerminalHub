@@ -36,6 +36,15 @@ contextBridge.exposeInMainWorld('terminalAPI', {
   onZoomIn: (cb) => ipcRenderer.on('zoom-in', cb),
   onZoomOut: (cb) => ipcRenderer.on('zoom-out', cb),
   onZoomReset: (cb) => ipcRenderer.on('zoom-reset', cb),
+  getPaneInfo: (id) => ipcRenderer.invoke('get-pane-info', { id }),
+  getSavedTabs: () => ipcRenderer.invoke('get-saved-tabs'),
+  saveTabs: (snapshot) => ipcRenderer.send('save-tabs', snapshot),
+  notifyTab: (payload) => ipcRenderer.send('notify-tab', payload),
+  setBadge: (count) => ipcRenderer.send('set-badge', count),
+  onGotoTab: (cb) => ipcRenderer.on('goto-tab', (event, n) => cb(n)),
+  onActivateSession: (cb) => ipcRenderer.on('activate-session', (event, id) => cb(id)),
+  onWindowFocus: (cb) => ipcRenderer.on('window-focus', () => cb()),
+  onFullscreenChange: (cb) => ipcRenderer.on('fullscreen-changed', (event, isFullscreen) => cb(isFullscreen)),
 
   // Snippets
   getSnippets: () => ipcRenderer.invoke('get-snippets'),
