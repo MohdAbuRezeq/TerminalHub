@@ -57,6 +57,16 @@ It is built for people who run long tasks in several tabs at once: dev servers, 
 - Choose the terminal font and the interface font, and set a size for each.
 - Arabic and Hebrew are drawn with a monospace font and read right to left.
 
+**Everyday terminal things**
+
+- Search through a tab's output with `⌘F`.
+- Links in the output are clickable.
+- Open a new tab straight in a folder you pick, with `⌘M`.
+- Copying text tidies it up: trailing spaces are dropped, and a long line that wrapped on screen is copied as one line.
+- 10,000 lines of scrollback per pane.
+- Hide the sidebar when you want the whole window for the terminal.
+- Long tasks keep running at full speed when the app is in the background.
+
 **Safe by default**
 
 - Quitting the app, closing a tab and deleting a snippet all ask first.
