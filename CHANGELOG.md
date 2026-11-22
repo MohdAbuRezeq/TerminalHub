@@ -4,6 +4,16 @@ All notable changes to TerminalHub are listed here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 1.1.1 - 2026-11-22
+
+### Fixed
+
+- The downloadable app from release 1.1.0 could not start any terminal ("posix_spawnp failed"). A helper program inside the app was not marked as executable. Builds made on your own Mac were not affected.
+
+### Changed
+
+- The release workflow now launches the finished app and checks that a terminal opens before it publishes.
+
 ## 1.1.0 - 2026-11-22
 
 ### Added

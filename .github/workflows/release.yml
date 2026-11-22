@@ -47,6 +47,28 @@ jobs:
           codesign --force --deep --sign - "$APP"
           codesign --verify --deep --strict "$APP"
 
+      # Launch the finished app and wait for it to open a terminal. A tab in
+      # the saved state means the page loaded and a shell really started.
+      # This catches a broken build before anyone can download it.
+      - name: Smoke test the built app
+        run: |
+          APP="dist/TerminalHub-darwin-arm64/TerminalHub.app"
+          DATA="$RUNNER_TEMP/smoke-data"
+          "$APP/Contents/MacOS/TerminalHub" --user-data-dir="$DATA" > smoke.log 2>&1 &
+          PID=$!
+          OK=0
+          for i in $(seq 1 30); do
+            if grep -q '"panes"' "$DATA/state.json" 2>/dev/null; then OK=1; break; fi
+            sleep 2
+          done
+          kill -9 "$PID" 2>/dev/null || true
+          cat smoke.log
+          if [ "$OK" != "1" ]; then
+            echo "The app did not open a terminal."
+            exit 1
+          fi
+          echo "A terminal opened."
+
       - name: Zip
         run: |
           ZIP="TerminalHub-$VERSION-mac-arm64.zip"

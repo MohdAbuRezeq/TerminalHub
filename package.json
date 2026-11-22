@@ -1,6 +1,6 @@
 {
   "name": "terminal-hub",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "All your terminals in one calm window. A macOS terminal app with a sidebar of tabs, split panes, snippets, and tabs that come back after a restart.",
   "keywords": [
     "terminal",
@@ -34,9 +34,9 @@
     "build": "esbuild renderer/renderer.js --bundle --outfile=renderer/bundle.js --platform=browser --format=iife --external:electron",
     "start": "npm run build && electron .",
     "rebuild": "electron-rebuild -f -w node-pty",
-    "postinstall": "electron-rebuild -f -w node-pty || true",
+    "postinstall": "(electron-rebuild -f -w node-pty || true) && node scripts/fix-pty-permissions.js",
     "test": "node --test",
-    "package": "npm run build && electron-packager . TerminalHub --platform=darwin --arch=arm64 --out=dist --overwrite --icon=assets/icon.icns --app-bundle-id=com.terminalhub.app --prune=true --asar.unpackDir=node_modules/node-pty"
+    "package": "npm run build && node scripts/fix-pty-permissions.js && electron-packager . TerminalHub --platform=darwin --arch=arm64 --out=dist --overwrite --icon=assets/icon.icns --app-bundle-id=com.terminalhub.app --prune=true --asar.unpackDir=node_modules/node-pty"
   },
   "dependencies": {
     "@fontsource-variable/figtree": "^5.3.0",
