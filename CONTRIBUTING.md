@@ -94,6 +94,10 @@ docs: explain the first launch warning
 
 Common prefixes are `feat`, `fix`, `docs`, `refactor`, `perf`, `test` and `chore`.
 
+## Releases
+
+Maintainers publish a release by updating the version in `package.json` and `CHANGELOG.md`, then pushing a tag such as `v1.2.0`. A workflow builds the app, signs it ad hoc, and attaches the zip to a GitHub release. The tag must match the version in `package.json`.
+
 ## Pull requests
 
 A pull request is easy to merge when it:

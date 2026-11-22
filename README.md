@@ -12,6 +12,7 @@ A terminal app for macOS with a sidebar of tabs, split panes, snippets, and tabs
 [![License: MIT](https://img.shields.io/badge/license-MIT-d97757.svg)](LICENSE)
 ![Platform: macOS](https://img.shields.io/badge/platform-macOS%20(Apple%20Silicon)-lightgrey.svg)
 ![Electron 33](https://img.shields.io/badge/electron-33-47848f.svg)
+[![Latest release](https://img.shields.io/github/v/release/MohdAbuRezeq/TerminalHub?color=d97757)](https://github.com/MohdAbuRezeq/TerminalHub/releases/latest)
 
 </div>
 
@@ -74,15 +75,23 @@ It is built for people who run long tasks in several tabs at once: dev servers, 
 
 ## Install
 
-There are no prebuilt downloads yet. Build it from source, which takes a few minutes.
+**Download**
 
-**You need**
+1. Get the latest zip from the [Releases page](https://github.com/MohdAbuRezeq/TerminalHub/releases/latest).
+2. Open the zip and drag **TerminalHub.app** into your **Applications** folder.
+3. Open it. The first time, macOS blocks the app because it is not signed with an Apple Developer certificate. Go to **System Settings > Privacy & Security**, scroll down, and click **Open Anyway**. On macOS 14 and older, right-click the app in Finder and choose **Open**.
 
-- macOS on Apple Silicon (M1 or newer)
-- Node.js 18 or newer
-- Xcode Command Line Tools (`xcode-select --install`)
+You need a Mac with Apple Silicon (M1 or newer).
 
-**Build**
+If you prefer the terminal, this removes the block:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/TerminalHub.app
+```
+
+**Build from source**
+
+You need Node.js 18 or newer and the Xcode Command Line Tools (`xcode-select --install`).
 
 ```bash
 git clone https://github.com/MohdAbuRezeq/TerminalHub.git
@@ -91,17 +100,7 @@ npm install
 npm run package
 ```
 
-The app is written to `dist/TerminalHub-darwin-arm64/TerminalHub.app`. Drag it into `/Applications`.
-
-**First launch**
-
-The app is not signed with an Apple Developer certificate, so macOS blocks it the first time. To open it, right-click the app in Finder, choose **Open**, and confirm. macOS remembers your choice.
-
-You can also remove the block from a terminal:
-
-```bash
-xattr -dr com.apple.quarantine /Applications/TerminalHub.app
-```
+The app is written to `dist/TerminalHub-darwin-arm64/TerminalHub.app`.
 
 ## Keyboard shortcuts
 
@@ -171,7 +170,7 @@ The renderer is bundled with esbuild into `renderer/bundle.js`, which is not che
 - **Right-to-left text is partial.** Arabic and Hebrew lines read correctly, but they start at the left edge, and the cursor sits at the wrong end while typing.
 - **Click and delete on the input line send keystrokes.** The shell owns the line, so the app sends arrow keys and backspaces on your behalf. Programs that read input without a line editor, such as password prompts, can receive those keys as text.
 - **Restored tabs start fresh shells.** Programs that were running are not restarted.
-- **No signed build.** See the first launch note above.
+- **No signed build.** macOS asks you to confirm the first launch. See the install steps above.
 
 ## Contributing
 

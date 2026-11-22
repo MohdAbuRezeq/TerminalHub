@@ -1,0 +1,83 @@
+name: Release
+
+# Push a tag like v1.2.0 to build the app and publish it as a GitHub release.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build and publish
+    runs-on: macos-latest   # Apple Silicon
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Check the tag matches package.json
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          if [ "v$VERSION" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match package.json version $VERSION"
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      # Full install: downloads Electron and builds node-pty for it.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build the app
+        run: npm run package
+
+      # The app has no Apple Developer certificate. An ad-hoc signature is
+      # still required: Apple Silicon refuses to run unsigned code at all.
+      - name: Sign ad hoc and verify
+        run: |
+          APP="dist/TerminalHub-darwin-arm64/TerminalHub.app"
+          codesign --force --deep --sign - "$APP"
+          codesign --verify --deep --strict "$APP"
+
+      - name: Zip
+        run: |
+          ZIP="TerminalHub-$VERSION-mac-arm64.zip"
+          ditto -c -k --sequesterRsrc --keepParent "dist/TerminalHub-darwin-arm64/TerminalHub.app" "$ZIP"
+          shasum -a 256 "$ZIP" > "$ZIP.sha256"
+          echo "ZIP=$ZIP" >> "$GITHUB_ENV"
+          ls -lh "$ZIP"
+
+      # Release notes are this version's section of CHANGELOG.md.
+      - name: Write release notes
+        run: |
+          awk -v v="$VERSION" '
+            /^## / { if (found) exit; if (index($0, "## " v " ") == 1) { found = 1; next } }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          cat >> notes.md <<'NOTES'
+
+          ## Install
+
+          1. Download the zip below and open it.
+          2. Drag **TerminalHub.app** into your **Applications** folder.
+          3. The first time, macOS will block the app because it is not signed with an Apple Developer certificate. Open **System Settings > Privacy & Security**, scroll down, and click **Open Anyway**. On older macOS versions, right-click the app and choose **Open**.
+
+          Needs a Mac with Apple Silicon (M1 or newer).
+          NOTES
+          cat notes.md
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "$ZIP" "$ZIP.sha256" \
+            --title "TerminalHub $VERSION" \
+            --notes-file notes.md
