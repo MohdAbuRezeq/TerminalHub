@@ -10,6 +10,7 @@ const { FitAddon } = require('@xterm/addon-fit');
 const { WebLinksAddon } = require('@xterm/addon-web-links');
 const { SearchAddon } = require('@xterm/addon-search');
 const { shellQuote } = require('../lib/shell');
+const { cleanCopiedText } = require('../lib/copy-text');
 const { pickAdjacentDivider } = require('../lib/divider');
 const { computeDeleteSequence, computeBlockDeleteSequence, computeClickMoveSequence, lineRunBounds, blockRunBounds } = require('../lib/line-edit');
 const { isShellProcess, folderName, shortPath, tabSubtitle, moveItem } = require('../lib/tabs');
@@ -364,7 +365,7 @@ async function createPane(container, cwd) {
   term.onData((data) => window.terminalAPI.sendInput(ptyId, data));
   term.onResize(({ cols, rows }) => window.terminalAPI.resize(ptyId, cols, rows));
 
-  // Clean up copied text: trim trailing whitespace and rejoin soft-wrapped lines
+  // Clean up copied text: trim whitespace and rejoin wrapped lines (lib/copy-text)
   term.attachCustomKeyEventHandler((e) => {
     // xterm has its own ⌘A that selects the whole buffer. Skip it so the
     // menu's Select All (line first, everything second) is the only one
@@ -375,22 +376,8 @@ async function createPane(container, cwd) {
 
     if ((e.metaKey || e.ctrlKey) && e.key === 'c' && term.hasSelection()) {
       e.preventDefault();
-      const raw = term.getSelection();
-      const cols = term.cols;
-      const lines = raw.split('\n');
-      const cleaned = lines
-        .map((line) => line.trim())
-        .reduce((acc, line, i, arr) => {
-          if (i === 0) return [line];
-          // If the previous trimmed line filled the terminal width, it was soft-wrapped
-          if (arr[i - 1].length >= cols && line.length > 0) {
-            acc[acc.length - 1] += line;
-          } else {
-            acc.push(line);
-          }
-          return acc;
-        }, [])
-        .join('\n');
+      const sel = term.getSelectionPosition();
+      const cleaned = cleanCopiedText(term.getSelection(), term.cols, sel ? sel.start.x : 0);
       navigator.clipboard.writeText(cleaned);
       return false;
     }

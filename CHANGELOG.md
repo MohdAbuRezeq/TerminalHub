@@ -6,8 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## Unreleased
 
+## 1.1.2 - 2026-11-22
+
 ### Fixed
 
+- Text copied from programs that wrap their own paragraphs, such as Claude Code, came out with a line break at the end of every row. Copy now joins those rows back into whole paragraphs and keeps the real line breaks.
 - The Snippets panel showed "No snippets yet" even when there were snippets.
 
 ## 1.1.1 - 2026-11-22
