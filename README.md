@@ -1,7 +1,5 @@
 <div align="center">
 
-<img src="docs/screenshots/start.png" alt="TerminalHub start screen" width="720">
-
 # TerminalHub
 
 **All your terminals in one calm window.**
@@ -24,7 +22,86 @@ Most days end with a dozen terminal windows and no idea which one is running wha
 
 It is built for people who run long tasks in several tabs at once: dev servers, test runs, builds, and coding agents such as Claude Code.
 
-## Features
+## A quick tour
+
+### Tabs that tell you what is going on
+
+Each tab shows its folder and what is running in it. A dot shows its state: grey is idle, orange is busy, blue means it finished while you were looking elsewhere.
+
+<table>
+<tr>
+<td width="33%"><img src="docs/screenshots/tabs.png" alt="Sidebar with three tabs and their status dots"></td>
+<td width="33%"><img src="docs/screenshots/reorder.png" alt="Dragging a tab to a new position"></td>
+<td width="33%"><img src="docs/screenshots/rename.png" alt="Renaming a tab in place"></td>
+</tr>
+<tr>
+<td align="center"><b>See what runs where.</b><br>Orange is busy, blue is done.</td>
+<td align="center"><b>Drag to reorder.</b><br>The line shows where it lands.</td>
+<td align="center"><b>Double-click to rename.</b><br>Your name stays put.</td>
+</tr>
+</table>
+
+### Split a tab in two
+
+Keep a server running on one side and work on the other. Split side by side with `⌘D`, or top and bottom with `⇧⌘D`, and drag the divider to resize.
+
+![A tab split into a top and a bottom pane](docs/screenshots/split-vertical.png)
+
+### Start in the right place with one click
+
+A snippet is a saved command. Give it a folder as well, and one click opens a tab there and runs it.
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/new-terminal.png" alt="New terminal picker listing snippets"></td>
+<td width="50%"><img src="docs/screenshots/snippet-folder.png" alt="Snippet form with name, command and folder"></td>
+</tr>
+<tr>
+<td align="center"><b>Pick a snippet when you open a tab.</b></td>
+<td align="center"><b>Name, command, and a folder to start in.</b></td>
+</tr>
+</table>
+
+### Type like you do in an editor
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/select-input.png" alt="The typed command is selected"></td>
+<td width="50%"><img src="docs/screenshots/search.png" alt="Searching the terminal output"></td>
+</tr>
+<tr>
+<td align="center"><b><code>⌘A</code> selects what you typed.</b><br>Backspace clears it. Click to move the cursor.</td>
+<td align="center"><b><code>⌘F</code> searches the output.</b><br>Step through matches with the arrows.</td>
+</tr>
+</table>
+
+### Make it yours
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/fonts.png" alt="Fonts panel with terminal and interface fonts and sizes"></td>
+<td width="50%"><img src="docs/screenshots/rtl.png" alt="Arabic text in the terminal"><br><br><img src="docs/screenshots/confirm.png" alt="Confirmation before closing a terminal"></td>
+</tr>
+<tr>
+<td align="center"><b>Fonts and sizes</b> for the terminal and the interface.<br>Every name is shown in its own font.</td>
+<td align="center"><b>Arabic and Hebrew</b> read right to left.<br><b>Nothing closes by accident</b>: quitting, closing a tab and deleting a snippet all ask first.</td>
+</tr>
+</table>
+
+### The rest
+
+<table>
+<tr>
+<td width="62%"><img src="docs/screenshots/start.png" alt="Start screen with a greeting"></td>
+<td width="38%"><img src="docs/screenshots/shortcuts.png" alt="Keyboard shortcuts list in the sidebar"></td>
+</tr>
+<tr>
+<td align="center"><b>A calm start screen</b> when no tabs are open.</td>
+<td align="center"><b>Shortcuts are one click away</b> in the sidebar.</td>
+</tr>
+</table>
+
+## All features
 
 **Tabs you can find again**
 
@@ -71,17 +148,6 @@ It is built for people who run long tasks in several tabs at once: dev servers, 
 
 - Quitting the app, closing a tab and deleting a snippet all ask first.
 - The window remembers its size, position and full-screen state.
-
-<table>
-<tr>
-<td width="50%"><img src="docs/screenshots/new-terminal.png" alt="New terminal picker with snippets"></td>
-<td width="50%"><img src="docs/screenshots/fonts.png" alt="Fonts panel"></td>
-</tr>
-<tr>
-<td align="center">Start a tab from a snippet</td>
-<td align="center">Pick fonts and sizes</td>
-</tr>
-</table>
 
 ## Install
 

@@ -945,6 +945,10 @@ body.fullscreen #sidebar-expand {
   color: var(--text-dim);
 }
 
+#snippets-empty.hidden {
+  display: none;
+}
+
 .snippet-item {
   display: flex;
   align-items: center;
