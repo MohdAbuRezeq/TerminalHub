@@ -1729,6 +1729,14 @@ const snippetCommandInput = document.getElementById('snippet-command');
 const snippetCwdInput = document.getElementById('snippet-cwd');
 
 let snippetsVisible = false;
+// Snippet being dragged to a new place in the list, if any.
+let snippetDragId = null;
+
+function clearSnippetDropMarks() {
+  snippetsList.querySelectorAll('.drop-before, .drop-after').forEach((n) => {
+    n.classList.remove('drop-before', 'drop-after');
+  });
+}
 
 function genSnippetId() {
   return 's_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -1773,6 +1781,39 @@ async function renderSnippets() {
       e.stopPropagation();
       if (!(await confirmClose(`Delete the snippet "${s.name}"?`, 'Delete'))) return;
       await window.terminalAPI.deleteSnippet(s.id);
+      await renderSnippets();
+    });
+
+    // Drag a snippet up or down to reorder. The line shows where it will land.
+    row.draggable = true;
+    row.addEventListener('dragstart', (e) => {
+      snippetDragId = s.id;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', s.name);
+      row.classList.add('dragging');
+    });
+    row.addEventListener('dragend', () => {
+      snippetDragId = null;
+      clearSnippetDropMarks();
+      row.classList.remove('dragging');
+    });
+    row.addEventListener('dragover', (e) => {
+      if (!snippetDragId || snippetDragId === s.id) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      const rect = row.getBoundingClientRect();
+      const after = e.clientY > rect.top + rect.height / 2;
+      clearSnippetDropMarks();
+      row.classList.add(after ? 'drop-after' : 'drop-before');
+    });
+    row.addEventListener('drop', async (e) => {
+      if (!snippetDragId || snippetDragId === s.id) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const after = row.classList.contains('drop-after');
+      const moved = snippetDragId;
+      snippetDragId = null;
+      await window.terminalAPI.moveSnippet(moved, s.id, after);
       await renderSnippets();
     });
 

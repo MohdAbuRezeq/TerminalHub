@@ -50,5 +50,6 @@ contextBridge.exposeInMainWorld('terminalAPI', {
   getSnippets: () => ipcRenderer.invoke('get-snippets'),
   saveSnippet: (snippet) => ipcRenderer.invoke('save-snippet', snippet),
   deleteSnippet: (id) => ipcRenderer.invoke('delete-snippet', id),
+  moveSnippet: (fromId, toId, after) => ipcRenderer.invoke('move-snippet', { fromId, toId, after }),
   onToggleSnippets: (cb) => ipcRenderer.on('toggle-snippets', cb),
 });

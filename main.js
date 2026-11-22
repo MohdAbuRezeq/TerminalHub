@@ -8,7 +8,7 @@ const pty = require('node-pty');
 const Store = require('electron-store');
 const { getShellConfig } = require('./lib/shell');
 const { createTerminalStore } = require('./lib/terminal-store');
-const { sanitizeSavedTabs, looksLikeVersion, cleanProcessName } = require('./lib/tabs');
+const { sanitizeSavedTabs, looksLikeVersion, cleanProcessName, moveItem } = require('./lib/tabs');
 
 const execFileAsync = promisify(execFile);
 
@@ -455,6 +455,13 @@ ipcMain.handle('save-snippet', (event, snippet) => {
   } else {
     snippets.push(snippet);
   }
+  store.set('snippets', snippets);
+  return snippets;
+});
+
+// Drag a snippet to a new place: put `fromId` just before or after `toId`.
+ipcMain.handle('move-snippet', (event, { fromId, toId, after }) => {
+  const snippets = moveItem(store.get('snippets'), fromId, toId, !!after);
   store.set('snippets', snippets);
   return snippets;
 });

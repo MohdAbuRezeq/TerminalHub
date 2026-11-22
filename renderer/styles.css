@@ -348,15 +348,18 @@ body.fullscreen #sidebar-expand {
 
 /* Reordering by drag: the dragged tab fades, and a line marks the gap it
    will drop into. */
-.terminal-item.dragging {
+.terminal-item.dragging,
+.snippet-item.dragging {
   opacity: 0.4;
 }
 
-.terminal-item.drop-before {
+.terminal-item.drop-before,
+.snippet-item.drop-before {
   box-shadow: 0 -2px 0 0 var(--accent);
 }
 
-.terminal-item.drop-after {
+.terminal-item.drop-after,
+.snippet-item.drop-after {
   box-shadow: 0 2px 0 0 var(--accent);
 }
 
