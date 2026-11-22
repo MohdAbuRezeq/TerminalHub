@@ -8,3 +8,6 @@ assets/icon.svg
 
 # macOS
 .DS_Store
+
+# Local backups
+*.bak

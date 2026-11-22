@@ -1,9 +1,31 @@
 {
   "name": "terminal-hub",
-  "version": "1.0.0",
-  "description": "Manage all your terminals in one place",
+  "version": "1.1.0",
+  "description": "All your terminals in one calm window. A macOS terminal app with a sidebar of tabs, split panes, snippets, and tabs that come back after a restart.",
+  "keywords": [
+    "terminal",
+    "terminal-emulator",
+    "macos",
+    "electron",
+    "xterm",
+    "node-pty",
+    "tabs",
+    "split-panes",
+    "developer-tools"
+  ],
+  "homepage": "https://github.com/MohdAbuRezeq/TerminalHub#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MohdAbuRezeq/TerminalHub.git"
+  },
+  "bugs": {
+    "url": "https://github.com/MohdAbuRezeq/TerminalHub/issues"
+  },
   "license": "MIT",
   "author": "Mohammad Abu Rezeq",
+  "engines": {
+    "node": ">=18"
+  },
   "main": "main.js",
   "bin": {
     "terminalhub": "./bin/terminalhub.js"

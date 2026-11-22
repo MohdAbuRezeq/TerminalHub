@@ -1,0 +1,30 @@
+name: Feature request
+description: Suggest an idea or an improvement
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve
+      description: Describe the situation, not the solution. What is hard or slow today?
+      placeholder: "I lose track of which tab is running my build."
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help
+      description: Your idea for how TerminalHub could solve it.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you do today
+      description: Any workaround you use now, or other tools that handle this well.
+  - type: checkboxes
+    id: help
+    attributes:
+      label: Would you like to work on it
+      options:
+        - label: I would be glad to send a pull request for this
