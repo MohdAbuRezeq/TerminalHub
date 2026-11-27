@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="100" x2="0" y2="924" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1f1e1d"/><stop offset="1" stop-color="#101010"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="0" y1="100" x2="0" y2="924" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff" stop-opacity="0.22"/>
+      <stop offset="0.5" stop-color="#fff" stop-opacity="0.05"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0.02"/>
+    </linearGradient>
+    <clipPath id="shape"><rect x="100" y="100" width="824" height="824" rx="186"/></clipPath>
+  </defs>
+  <rect x="106" y="122" width="812" height="812" rx="180" fill="#000" opacity="0.028"/><rect x="103.5" y="119.5" width="817" height="817" rx="182.5" fill="#000" opacity="0.028"/><rect x="101" y="117" width="822" height="822" rx="185" fill="#000" opacity="0.028"/><rect x="98.5" y="114.5" width="827" height="827" rx="187.5" fill="#000" opacity="0.028"/><rect x="96" y="112" width="832" height="832" rx="190" fill="#000" opacity="0.028"/><rect x="93.5" y="109.5" width="837" height="837" rx="192.5" fill="#000" opacity="0.028"/><rect x="91" y="107" width="842" height="842" rx="195" fill="#000" opacity="0.028"/><rect x="88.5" y="104.5" width="847" height="847" rx="197.5" fill="#000" opacity="0.028"/><rect x="86" y="102" width="852" height="852" rx="200" fill="#000" opacity="0.028"/><rect x="83.5" y="99.5" width="857" height="857" rx="202.5" fill="#000" opacity="0.028"/><rect x="81" y="97" width="862" height="862" rx="205" fill="#000" opacity="0.028"/><rect x="78.5" y="94.5" width="867" height="867" rx="207.5" fill="#000" opacity="0.028"/>
+  <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#bg)"/>
+  <g clip-path="url(#shape)">
+    <path d="M306 330 L494 512 L306 694" fill="none" stroke="#ece9e2" stroke-width="84" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="10"/><rect x="548" y="643" width="190" height="84" fill="#d97757"/>
+    <rect x="102" y="102" width="820" height="820" rx="184" fill="none" stroke="url(#rim)" stroke-width="4"/>
+  </g>
+</svg>

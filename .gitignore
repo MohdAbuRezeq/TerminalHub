@@ -4,7 +4,6 @@ dist-test/
 renderer/bundle.js
 assets/icon.iconset/
 assets/icon_1024.png
-assets/icon.svg
 
 # macOS
 .DS_Store
