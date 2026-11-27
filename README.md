@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="assets/icon.svg" width="128" height="128" alt="TerminalHub logo">
+
 # TerminalHub
 
 **All your terminals in one calm window.**
