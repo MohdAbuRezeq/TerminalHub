@@ -36,6 +36,7 @@
     "rebuild": "electron-rebuild -f -w node-pty",
     "postinstall": "(electron-rebuild -f -w node-pty || true) && node scripts/fix-pty-permissions.js",
     "test": "node --test",
+    "icon": "sh scripts/build-icon.sh",
     "package": "npm run build && node scripts/fix-pty-permissions.js && electron-packager . TerminalHub --platform=darwin --arch=arm64 --out=dist --overwrite --icon=assets/icon.icns --app-bundle-id=com.terminalhub.app --prune=true --asar.unpackDir=node_modules/node-pty"
   },
   "dependencies": {
